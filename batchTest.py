@@ -1,154 +1,152 @@
-# batchTest.py
-# batch test two agents with parallel processing
-# venv\Scripts\Activate.ps1
-# python batchTest.py
-
-from bazaar_ai.bazaar import BasicBazaar
-from bazaar_ai.goods import GoodType
-from agents.expert_heuristic_agent import ExpertHeuristicAgent
-from agents.smart_agent import SmartAgent
-from concurrent.futures import ProcessPoolExecutor, as_completed
 import time
+import multiprocessing
+import random
+from collections import defaultdict
+from typing import Dict
 
-def play_single_game(agent1_class, agent2_class, game_num, seed):
-    """
-    Play a single game and return results.
-    This runs in a separate process.
-    """
-    # Create agents
-    agent1 = agent1_class(seed=seed, name=f"{agent1_class.__name__}")
-    agent2 = agent2_class(seed=seed+1000, name=f"{agent2_class.__name__}")
+# ============================================================
+# CONFIGURATION - CHANGE THESE TO TEST DIFFERENT AGENTS
+# ============================================================
+# from agents.smart_agent import SmartAgent as Agent1
+# from agents.random_agent import RandomAgent as Agent1
+# from agents.expert_heuristic_agent import ExpertHeuristicAgent as Agent1
+from agents.shark_agent import SharkAgent as Agent2
+# from agents.apex_agent import ApexAgent as Agent2
+# from agents.shark_agent2 import SharkAgent2 as Agent1
+# from agents.shark_agent5 import SharkAgent5 as Agent1
+from agents.shark_agent6 import SharkAgent6 as Agent1
+
+NUM_GAMES = 1000    # How many games to play total
+SEED_START = 234823       # Starting random seed (change for different matchups)
+
+# ============================================================
+
+def run_single_game(seed: int) -> Dict[str, int]:
+    """Runs one game and returns final scores."""
     
-    # Create and play game
-    players = [agent1, agent2]
-    game = BasicBazaar(seed=seed, players=players)
-    game.play()
+    # Initialize Agents
+    agent_1 = Agent1(seed=seed, name="Agent1")
+    agent_2 = Agent2(seed=seed+1000, name="Agent2")
+    
+    agents = [agent_1, agent_2]
+    
+    # Setup game
+    from bazaar_ai.bazaar import BasicBazaar
+    game = BasicBazaar(seed=seed, players=agents)
+    state = game.state
+    
+    # Play game
+    while not game.terminal(state):
+        actor = state.actor
+        actions = game.all_actions(actor, state)
+        
+        if not actions:
+            break
+            
+        def simulate_action(action):
+            next_state = game.apply_action(state, action)
+            return game.observe(actor, next_state)
+            
+        try:
+            observation = game.observe(actor, state)
+            chosen_action = actor.select_action(actions, observation, simulate_action)
+        except Exception:
+            chosen_action = random.choice(actions)
+            
+        # --- CRITICAL FIX IS HERE ---
+        # 1. Apply the action to get the new state
+        state = game.apply_action(state, chosen_action)
+        
+        # 2. UPDATE THE GAME'S INTERNAL STATE
+        # Without this, the game engine doesn't know the turn changed,
+        # and it will keep assigning the turn to Agent 2 forever.
+        game.state = state 
+        # ----------------------------
     
     # Get final scores
-    final_state = game.state
-    
-    score1 = 0
-    for good_coins in final_state.player_coins[agent1].goods_coins.values():
-        score1 += sum(good_coins)
-    for bonus_coins in final_state.player_coins[agent1].bonus_coins.values():
-        score1 += sum(bonus_coins)
-    
-    score2 = 0
-    for good_coins in final_state.player_coins[agent2].goods_coins.values():
-        score2 += sum(good_coins)
-    for bonus_coins in final_state.player_coins[agent2].bonus_coins.values():
-        score2 += sum(bonus_coins)
-    
-    # Camel bonus
-    camel1 = final_state.player_goods[agent1][GoodType.CAMEL]
-    camel2 = final_state.player_goods[agent2][GoodType.CAMEL]
-    if camel1 > camel2:
-        score1 += 5
-    elif camel2 > camel1:
-        score2 += 5
-    
-    # Determine winner
-    if score1 > score2:
-        result = "WIN"
-    elif score2 > score1:
-        result = "LOSS"
-    else:
-        result = "TIE"
-    
-    return {
-        'game_num': game_num,
-        'score1': score1,
-        'score2': score2,
-        'result': result
-    }
+    scores = {}
+    for player in agents:
+        scores[player.name] = game.calculate_reward(player, state, state)
+        
+    return scores
 
-def run_games(agent1_class, agent2_class, num_games=100, seed_start=0, max_workers=None):
-    """
-    Run multiple games in parallel between two agents.
-    
-    Args:
-        agent1_class: First agent class
-        agent2_class: Second agent class
-        num_games: Number of games to play
-        seed_start: Starting seed for reproducibility
-        max_workers: Number of parallel processes (default: CPU count)
-    """
-    
-    agent1_wins = 0
-    agent2_wins = 0
-    ties = 0
-    
-    agent1_total_score = 0
-    agent2_total_score = 0
+
+def run_tournament():
+    """Run tournament with settings from top of file."""
     
     print(f"\n{'='*60}")
-    print(f"Battle: {agent1_class.__name__} vs {agent2_class.__name__}")
-    print(f"Playing {num_games} games in parallel...")
+    print(f"TOURNAMENT: {Agent1.__name__} vs {Agent2.__name__}")
+    print(f"Games: {NUM_GAMES}")
     print(f"{'='*60}\n")
     
     start_time = time.time()
+    num_workers = multiprocessing.cpu_count()
+    print(f"Using {num_workers} CPU cores.\n")
     
-    # Create list of game tasks
-    tasks = [(agent1_class, agent2_class, game_num, seed_start + game_num) 
-             for game_num in range(num_games)]
+    wins = defaultdict(int)
+    total_scores = defaultdict(int)
+    completed = 0
     
-    # Run games in parallel
-    with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all games
-        futures = {executor.submit(play_single_game, *task): task for task in tasks}
+    print("Running games...")
+    
+    with multiprocessing.Pool(processes=num_workers) as pool:
+        iterator = pool.imap_unordered(run_single_game, range(SEED_START, SEED_START + NUM_GAMES), chunksize=10)
         
-        # Process results as they complete
-        for future in as_completed(futures):
-            result = future.result()
+        for game_result in iterator:
+            completed += 1
             
-            game_num = result['game_num']
-            score1 = result['score1']
-            score2 = result['score2']
-            outcome = result['result']
+            # Progress updates
+            milestone = max(1, NUM_GAMES // 20)
+            if completed % milestone == 0 or completed == NUM_GAMES:
+                elapsed = time.time() - start_time
+                rate = completed / elapsed if elapsed > 0 else 0
+                remaining = (NUM_GAMES - completed) / rate if rate > 0 else 0
+                
+                print(f"Progress: {completed}/{NUM_GAMES} "
+                      f"({completed/NUM_GAMES*100:.0f}%) | "
+                      f"{rate:.1f} games/s | "
+                      f"ETA: {remaining:.0f}s")
             
-            # Update stats
-            agent1_total_score += score1
-            agent2_total_score += score2
+            # Track results
+            names = list(game_result.keys())
+            p1, p2 = names[0], names[1]
+            s1, s2 = game_result[p1], game_result[p2]
             
-            if outcome == "WIN":
-                agent1_wins += 1
-            elif outcome == "LOSS":
-                agent2_wins += 1
+            total_scores[p1] += s1
+            total_scores[p2] += s2
+            
+            if s1 > s2:
+                wins[p1] += 1
+            elif s2 > s1:
+                wins[p2] += 1
             else:
-                ties += 1
-            
-            # Print game result
-            print(f"Game {game_num + 1}/{num_games} finished: "
-                  f"{agent1_class.__name__} {score1}-{score2} {agent2_class.__name__} "
-                  f"({outcome})")
-    
-    elapsed_time = time.time() - start_time
-    
-    # Final results
+                wins["Draw"] += 1
+
+    # Final report
+    duration = time.time() - start_time
     print(f"\n{'='*60}")
-    print(f"FINAL RESULTS")
+    print(f"RESULTS")
     print(f"{'='*60}")
-    print(f"Time taken: {elapsed_time:.1f} seconds ({elapsed_time/num_games:.2f}s per game)")
-    print(f"\n{agent1_class.__name__}: {agent1_wins} wins ({agent1_wins/num_games*100:.1f}%)")
-    print(f"{agent2_class.__name__}: {agent2_wins} wins ({agent2_wins/num_games*100:.1f}%)")
-    print(f"Ties: {ties}")
-    print(f"\nAverage Scores:")
-    print(f"{agent1_class.__name__}: {agent1_total_score/num_games:.1f}")
-    print(f"{agent2_class.__name__}: {agent2_total_score/num_games:.1f}")
-    print(f"{'='*60}\n")
+    print(f"Time: {duration:.2f}s ({duration/NUM_GAMES:.3f}s per game)")
     
-    return {
-        'agent1_wins': agent1_wins,
-        'agent2_wins': agent2_wins,
-        'ties': ties,
-        'agent1_avg_score': agent1_total_score / num_games,
-        'agent2_avg_score': agent2_total_score / num_games,
-        'time_elapsed': elapsed_time
-    }
+    print(f"\n{'='*60}")
+    print("WIN RATES")
+    print(f"{'='*60}")
+    
+    for name, win_count in sorted(wins.items(), key=lambda x: x[1], reverse=True):
+        pct = (win_count / NUM_GAMES) * 100
+        bar = '█' * int(pct / 2)
+        print(f"{name:15} : {win_count:4} wins ({pct:5.1f}%) {bar}")
+    
+    print(f"\n{'='*60}")
+    print("AVERAGE SCORES")
+    print(f"{'='*60}")
+    
+    for name, total in sorted(total_scores.items(), key=lambda x: x[1], reverse=True):
+        avg = total / NUM_GAMES
+        print(f"{name:15} : {avg:6.1f} points")
+    print(f"{'='*60}\n")
 
 if __name__ == "__main__":
-    # Run with automatic CPU count (uses all cores)
-    results = run_games(ExpertHeuristicAgent, SmartAgent, num_games=100)
-    
-    # Or specify number of workers:
-    # results = run_games(ExpertHeuristicAgent, SmartAgent, num_games=100, max_workers=4)
+    multiprocessing.freeze_support()
+    run_tournament()
