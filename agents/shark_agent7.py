@@ -100,9 +100,10 @@ class GlobalStateTracker:
 
 class SharkAgent7(Trader):
     """
-    SHARK AGENT OMEGA (V7)
-    -----------------------
-    The "Solved" Agent with 93.2% Win Rate configuration.
+    SHARK AGENT 7 (Omega Variant)
+    -----------------------------
+    Configuration: 93.2% Win Rate Genome against Mixed League.
+    Strategy: Hoarder / Mercy Killer / Deck Counter.
     """
     def __init__(self, seed, name):
         super().__init__(seed, name)
@@ -111,7 +112,7 @@ class SharkAgent7(Trader):
         
         if not hasattr(self, 'uuid'): self.uuid = uuid.uuid4()
 
-        # --- THE 93.2% WIN RATE GENOME ---
+        # --- THE 93.2% RECORD GENOME ---
         self.genome = {
             'bonus_3_est': 0.44093175922854905, 
             'bonus_4_est': 17.168219969548513, 
@@ -289,8 +290,8 @@ class SharkAgent7(Trader):
         if deck[good] == 0: scarcity_bonus = params['scarcity_bonus']
         elif deck[good] == 1: scarcity_bonus = params['scarcity_bonus'] / 2
 
-        if in_hand == 3: score += (15 + scarcity_bonus)
-        if in_hand == 4: score += (20 + scarcity_bonus)
+        if in_hand == 3: score += 15
+        if in_hand == 4: score += 20
         if good in [GoodType.DIAMOND, GoodType.GOLD]: score += params['luxury_take_add']
 
         opp_count = opp_confirmed[good]
