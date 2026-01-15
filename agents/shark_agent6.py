@@ -1,3 +1,5 @@
+# prior to training: 408 wins to 565 wins against shark agent (worse than shark agent)
+
 import random
 import uuid
 import copy

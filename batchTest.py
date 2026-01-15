@@ -7,10 +7,10 @@ from typing import Dict
 # ============================================================
 # CONFIGURATION - CHANGE THESE TO TEST DIFFERENT AGENTS
 # ============================================================
-# from agents.smart_agent import SmartAgent as Agent1
+from agents.smart_agent import SmartAgent as Agent2
 # from agents.random_agent import RandomAgent as Agent1
 # from agents.expert_heuristic_agent import ExpertHeuristicAgent as Agent1
-from agents.shark_agent import SharkAgent as Agent2
+# from agents.shark_agent import SharkAgent as Agent2
 # from agents.apex_agent import ApexAgent as Agent2
 # from agents.shark_agent2 import SharkAgent2 as Agent1
 # from agents.shark_agent5 import SharkAgent5 as Agent1
