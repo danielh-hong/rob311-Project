@@ -7,17 +7,18 @@ from typing import Dict
 # ============================================================
 # CONFIGURATION - CHANGE THESE TO TEST DIFFERENT AGENTS
 # ============================================================
-from agents.smart_agent import SmartAgent as Agent2
-# from agents.random_agent import RandomAgent as Agent1
+# from agents.smart_agent import SmartAgent as Agent2
+# from agents.random_agent import RandomAgent as Agent2
 # from agents.expert_heuristic_agent import ExpertHeuristicAgent as Agent1
 # from agents.shark_agent import SharkAgent as Agent2
 # from agents.apex_agent import ApexAgent as Agent2
 # from agents.shark_agent2 import SharkAgent2 as Agent1
 # from agents.shark_agent5 import SharkAgent5 as Agent1
+from agents.shark_agent7 import SharkAgent7 as Agent2
 from agents.shark_agent6 import SharkAgent6 as Agent1
 
 NUM_GAMES = 1000    # How many games to play total
-SEED_START = 234823       # Starting random seed (change for different matchups)
+SEED_START = 233423       # Starting random seed (change for different matchups)
 
 # ============================================================
 

@@ -1,4 +1,8 @@
 # prior to training: 408 wins to 565 wins against shark agent (worse than shark agent)
+# prior to training: 609 wins to 363 wins against smart agent (better than smart agent)
+
+# post training: 793 wins to 186 wins (21 draws) against smart agent (much better than smart agent)
+# post training: 603 wins to 373 wins (24 draws) against shark agent (better than shark agent)
 
 import random
 import uuid
@@ -104,18 +108,20 @@ class SharkAgent6(Trader):
             self.uuid = uuid.uuid4()
 
         # The "Balanced" Genome (Robust Baseline)
+        # The "Evolved" Genome (Best from Gen 92 - 67.3% Win Rate)
         self.genome = {
-            'bonus_3_est': 2.0,      
-            'bonus_4_est': 5.5,      
-            'bonus_5_est': 9.0,      
-            'luxury_mult': 1.5,      
-            'cheap_mult': 2.0,       
-            'pressure_weight': 1.0,  
-            'camel_min_util': 5.0,   
-            'camel_take_val': 2.0,   
-            'trade_set_bonus': 25.0, 
-            'luxury_take_add': 10.0, 
-            'set_break_penalty': 15.0 
+            'bonus_3_est': 0.46101521927513794,
+            'bonus_4_est': 20.195191234717484,
+            'bonus_5_est': 30.00124098364798,
+            'luxury_mult': 0.34644316548584847,
+            'cheap_mult': 0.48812771349567025,
+            'pressure_weight': 0.5787146757167929,
+            'camel_min_util': 4.7995497582532805,
+            'camel_take_val': 0.017704558639876328,
+            'trade_set_bonus': 5.231116644985265,
+            'luxury_take_add': 0.3161569808518768,
+            'set_break_penalty': 35.389358948276374,
+            'denial_weight': 0.061804398633300416
         }
 
     def select_action(self, actions, observation, simulate_action_fnc):
