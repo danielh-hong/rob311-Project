@@ -87,8 +87,11 @@ class SharkAgent7(Trader):
     """
     SHARK AGENT 7 (Omega Variant)
     -----------------------------
-    Strategy: Hoarder / Mercy Killer / Deck Counter / Fisher.
-    Current Best Config: Gen 96 (62.3% Win Rate against League).
+    Current Best Config: Gen 108 (64.5% Win Rate against League).
+    Strategy: "The Selfish Hoarder"
+    - Massive priority on 5-card bonuses (47.4 pts).
+    - Extremely protective of sets (Set Break Penalty 76.4).
+    - Ignores opponent denial (Denial Weight 0.02) to focus on own score.
     """
     def __init__(self, seed, name):
         super().__init__(seed, name)
@@ -96,38 +99,38 @@ class SharkAgent7(Trader):
         if not hasattr(self, 'uuid'): self.uuid = uuid.uuid4()
 
         # =========================================================================
-        # 🧬  THE BRAIN (EDIT WEIGHTS HERE)  🧬
+        # 🧬  THE BRAIN (GEN 108 RECORD HOLDER)  🧬
         # =========================================================================
         self.genome = {
             # --- VALUATION (Points) ---
-            'bonus_3_est': 0.106,        # Low value on 3-card sets (Wait for 4/5)
-            'bonus_4_est': 1.150,        # Moderate value on 4-card sets
-            'bonus_5_est': 29.307,       # MASSIVE priority on 5-card sets
+            'bonus_3_est': 1.561,        # Low priority on small sets
+            'bonus_4_est': 1.512,        # Low priority on medium sets
+            'bonus_5_est': 47.439,       # MASSIVE priority on 5-card sets
             
             # --- MULTIPLIERS ---
-            'luxury_mult': 0.278,        # < 1.0 means HOARD Luxury (Don't sell for small change)
-            'cheap_mult': 5.911,         # > 1.0 means Dump Cheap goods ASAP for space
+            'luxury_mult': 0.251,        # Hoard Luxury (Don't sell for small change)
+            'cheap_mult': 5.911,         # Dump Cheap goods ASAP for space
             
             # --- TACTICS ---
-            'pressure_weight': 5.454,    # Panic factor when hand is full
-            'camel_min_util': 4.785,     # Value of taking camels if we have < 2
-            'camel_take_val': -0.089,    # Value of taking camels normally (Neutral/Slight Negative)
-            'fishing_bonus': 0.832,      # Value of taking camels IF it fishes for cards
+            'pressure_weight': 7.691,    # High panic factor (clears hand for 5-sets)
+            'camel_min_util': 4.203,     # Value of taking camels if we have < 2
+            'camel_take_val': -0.094,    # Still neutral/negative on raw camels
+            'fishing_bonus': 0.831,      # Uses camels primarily to fish for cards
             
-            'trade_set_bonus': 23.797,   # Huge bonus to fix hand via Trade
-            'luxury_take_add': 0.112,    # Small bonus to snipe single diamonds
-            'set_break_penalty': 36.414, # Do NOT break sets to trade
-            'denial_weight': 0.122,      # Low spite (Focus on self, not opponent)
+            'trade_set_bonus': 4.024,    # Moderate trade incentive
+            'luxury_take_add': 0.355,    # Bonus to snipe single diamonds
+            'set_break_penalty': 76.381, # EXTREME penalty: NEVER break a set
+            'denial_weight': 0.020,      # Zero spite. Pure efficiency.
             
             # --- ADVANCED LOGIC ---
-            'impossible_sell_bonus': 78.256, # If set impossible (deck empty), SELL NOW
-            'scarcity_bonus': 24.103,        # If last card in deck, GRAB IT
-            'waste_penalty': 0.285,          # Penalty for selling 2 cards for 1 token
+            'impossible_sell_bonus': 15.739, # Sell if deck empty
+            'scarcity_bonus': 12.783,        # Grab last card in deck
+            'waste_penalty': 0.107,          # Low penalty for waste (Speed > Efficiency)
             
             # --- ENDGAME ---
-            'endgame_rush_bonus': 2.354,     # Panic sell at end
-            'endgame_camel_value': 0.083,    # Value of camels at end
-            'mercy_kill_bonus': 4.071        # Bonus to end game if winning
+            'endgame_rush_bonus': 20.037,    # Panic sell at end
+            'endgame_camel_value': 0.102,    # Camels worth little at end
+            'mercy_kill_bonus': 1.024        # Low mercy kill (Confident in outscoring)
         }
         # =========================================================================
 
