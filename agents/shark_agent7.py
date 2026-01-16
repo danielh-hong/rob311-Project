@@ -6,14 +6,9 @@ from bazaar_ai.trader import Trader, SellAction, TakeAction, TradeAction
 from bazaar_ai.goods import GoodType
 
 # --- CONSTANTS ---
-# Exact card distribution from Jaipur Rulebook.
 TOTAL_CARDS = {
-    GoodType.DIAMOND: 6,
-    GoodType.GOLD: 6,
-    GoodType.SILVER: 6,
-    GoodType.FABRIC: 8,
-    GoodType.SPICE: 8,
-    GoodType.LEATHER: 10,
+    GoodType.DIAMOND: 6, GoodType.GOLD: 6, GoodType.SILVER: 6,
+    GoodType.FABRIC: 8, GoodType.SPICE: 8, GoodType.LEATHER: 10,
     GoodType.CAMEL: 11
 }
 
@@ -37,20 +32,16 @@ class GlobalStateTracker:
         
         act = obs.action
         
-        # --- CASE A: OPPONENT SOLD CARDS ---
+        # CASE A: OPPONENT SOLD
         if act.trader_action_type.value == "Sell":
             good = act._sell
             count = act._count
-            
-            # Update Hand Size & Knowledge
             self.opp_hand_size -= count
             known = self.opp_confirmed[good]
             self.opp_confirmed[good] -= min(known, count)
-            
-            # Update Dead Pile (Gone forever)
             self.sold_cards[good] += count
             
-            # Update Score Estimate
+            # Estimate Score
             avg_val = 5 if good in [GoodType.DIAMOND, GoodType.GOLD] else 2
             bonus = 0
             if count == 3: bonus = 2
@@ -58,24 +49,21 @@ class GlobalStateTracker:
             elif count >= 5: bonus = 9
             self.opp_score_est += (count * avg_val) + bonus
 
-        # --- CASE B: OPPONENT TOOK CARDS ---
+        # CASE B: OPPONENT TOOK
         elif act.trader_action_type.value == "Take":
             good = act._take
-            
             if good == GoodType.CAMEL:
-                # We trust the action object or assume at least 1
                 count = getattr(act, '_count', 1)
                 self.opp_camels += count
             else:
                 self.opp_hand_size += 1
                 self.opp_confirmed[good] += 1
 
-        # --- CASE C: OPPONENT TRADED ---
+        # CASE C: OPPONENT TRADED
         elif act.trader_action_type.value == "Trade":
             for g in GoodType:
                 if act.requested_goods[g] > 0: 
                     self.opp_confirmed[g] += act.requested_goods[g]
-            
             for g in GoodType:
                 qty = act.offered_goods[g]
                 if qty > 0:
@@ -86,14 +74,11 @@ class GlobalStateTracker:
                         self.opp_confirmed[g] -= min(known, qty)
     
     def get_deck_remaining(self, obs):
-        """Calculates cards remaining in the draw pile."""
         remaining = copy.deepcopy(TOTAL_CARDS)
-        
         for g in GoodType: remaining[g] -= obs.market_goods[g]
         for g in GoodType: remaining[g] -= obs.actor_goods[g]
         for g in remaining: remaining[g] -= self.opp_confirmed[g]
         for g in remaining: remaining[g] -= self.sold_cards[g]
-        
         for g in remaining: remaining[g] = max(0, remaining[g])
         return remaining
 
@@ -102,38 +87,49 @@ class SharkAgent7(Trader):
     """
     SHARK AGENT 7 (Omega Variant)
     -----------------------------
-    Configuration: 93.2% Win Rate Genome against Mixed League.
-    Strategy: Hoarder / Mercy Killer / Deck Counter.
+    Strategy: Hoarder / Mercy Killer / Deck Counter / Fisher.
+    Current Best Config: Gen 96 (62.3% Win Rate against League).
     """
     def __init__(self, seed, name):
         super().__init__(seed, name)
-        
         self.tracker = GlobalStateTracker()
-        
         if not hasattr(self, 'uuid'): self.uuid = uuid.uuid4()
 
-        # --- THE 93.2% RECORD GENOME ---
+        # =========================================================================
+        # 🧬  THE BRAIN (EDIT WEIGHTS HERE)  🧬
+        # =========================================================================
         self.genome = {
-            'bonus_3_est': 0.44093175922854905, 
-            'bonus_4_est': 17.168219969548513, 
-            'bonus_5_est': 26.993858784408033, 
-            'luxury_mult': 0.18531452549948751, 
-            'cheap_mult': 0.5234153816218508, 
-            'pressure_weight': 0.1143520517829709, 
-            'camel_min_util': 4.238755563598485, 
-            'camel_take_val': 0.008100828264704409, 
-            'trade_set_bonus': 4.198623573899503, 
-            'luxury_take_add': 0.15866538889263251, 
-            'set_break_penalty': 37.26189099078606, 
-            'denial_weight': 0.06079607741591933, 
-            'impossible_sell_bonus': 17.4808323336054, 
-            'scarcity_bonus': 8.710491419776499, 
-            'waste_penalty': 2.904686199332339, 
-            'endgame_rush_bonus': 20.47920950880446, 
-            'endgame_camel_value': 14.644475736790667, 
-            'mercy_kill_bonus': 11.161215221685692, 
-            'fishing_bonus': 1.9886034346621024
+            # --- VALUATION (Points) ---
+            'bonus_3_est': 0.106,        # Low value on 3-card sets (Wait for 4/5)
+            'bonus_4_est': 1.150,        # Moderate value on 4-card sets
+            'bonus_5_est': 29.307,       # MASSIVE priority on 5-card sets
+            
+            # --- MULTIPLIERS ---
+            'luxury_mult': 0.278,        # < 1.0 means HOARD Luxury (Don't sell for small change)
+            'cheap_mult': 5.911,         # > 1.0 means Dump Cheap goods ASAP for space
+            
+            # --- TACTICS ---
+            'pressure_weight': 5.454,    # Panic factor when hand is full
+            'camel_min_util': 4.785,     # Value of taking camels if we have < 2
+            'camel_take_val': -0.089,    # Value of taking camels normally (Neutral/Slight Negative)
+            'fishing_bonus': 0.832,      # Value of taking camels IF it fishes for cards
+            
+            'trade_set_bonus': 23.797,   # Huge bonus to fix hand via Trade
+            'luxury_take_add': 0.112,    # Small bonus to snipe single diamonds
+            'set_break_penalty': 36.414, # Do NOT break sets to trade
+            'denial_weight': 0.122,      # Low spite (Focus on self, not opponent)
+            
+            # --- ADVANCED LOGIC ---
+            'impossible_sell_bonus': 78.256, # If set impossible (deck empty), SELL NOW
+            'scarcity_bonus': 24.103,        # If last card in deck, GRAB IT
+            'waste_penalty': 0.285,          # Penalty for selling 2 cards for 1 token
+            
+            # --- ENDGAME ---
+            'endgame_rush_bonus': 2.354,     # Panic sell at end
+            'endgame_camel_value': 0.083,    # Value of camels at end
+            'mercy_kill_bonus': 4.071        # Bonus to end game if winning
         }
+        # =========================================================================
 
     def select_action(self, actions, observation, simulate_action_fnc):
         # 1. Update Global Knowledge
@@ -144,7 +140,6 @@ class SharkAgent7(Trader):
         deck_remaining = self.tracker.get_deck_remaining(observation)
         opp_locked = (self.tracker.opp_hand_size >= 7)
         
-        # 3. Detect Game End Conditions
         cards_in_deck = observation.market_reserved_goods_count
         empty_piles = 0
         for g in GoodType:
@@ -152,13 +147,11 @@ class SharkAgent7(Trader):
                 empty_piles += 1
         
         is_endgame = (cards_in_deck <= 8) or (empty_piles >= 2)
-
-        # 4. Score Check
         my_score = self._calculate_my_current_score(observation)
         opp_score = self.tracker.opp_score_est
         am_i_winning = (my_score > opp_score + 10)
 
-        # 5. Hand Pressure
+        # 3. Hand Pressure
         hand = observation.actor_goods
         hand_size = hand.count(include_camels=False)
         limit = observation.max_player_goods_count
@@ -167,13 +160,12 @@ class SharkAgent7(Trader):
         if hand_size >= limit: pressure = 20 * self.genome['pressure_weight']
         elif hand_size >= limit - 1: pressure = 5 * self.genome['pressure_weight']
 
-        # 6. Evaluate All Actions
+        # 4. Evaluate Actions
         best_action = None
         best_score = float('-inf')
 
         for action in actions:
             score = 0
-            
             if isinstance(action, SellAction):
                 score = self._score_sell(action, observation, pressure, opp_confirmed, deck_remaining, is_endgame, am_i_winning)
             elif isinstance(action, TakeAction):
@@ -290,8 +282,8 @@ class SharkAgent7(Trader):
         if deck[good] == 0: scarcity_bonus = params['scarcity_bonus']
         elif deck[good] == 1: scarcity_bonus = params['scarcity_bonus'] / 2
 
-        if in_hand == 3: score += 15
-        if in_hand == 4: score += 20
+        if in_hand == 3: score += (15 + scarcity_bonus)
+        if in_hand == 4: score += (20 + scarcity_bonus)
         if good in [GoodType.DIAMOND, GoodType.GOLD]: score += params['luxury_take_add']
 
         opp_count = opp_confirmed[good]
