@@ -1,3 +1,4 @@
+# i believe this is the best agent right now
 import random
 import uuid
 import copy

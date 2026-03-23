@@ -1,0 +1,1666 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bazaar - Player</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"/>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&family=Philosopher:wght@400;700&display=swap');
+        
+        body {
+            font-family: 'Philosopher', sans-serif;
+        }
+        
+        body::-webkit-scrollbar {
+            display: none;
+        }
+
+        button {
+            user-select: none;
+        }
+        
+        .ancient-title {
+            font-family: 'Cinzel', serif;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .parchment-bg {
+            background: #f0dfc8;
+            box-shadow: 
+                inset 0 0 50px rgba(139, 69, 19, 0.1),
+                0 8px 32px rgba(0, 0, 0, 0.4);
+        }
+        
+        .merchant-border {
+            border: 4px solid #8b4513;
+        }
+        
+        .coin-icon {
+            color: #d4af37;
+            filter: drop-shadow(0 2px 3px rgba(0,0,0,0.4));
+            -webkit-text-stroke: 1px #654321;
+            text-shadow: 
+                1px 1px 0 #654321,
+                -1px -1px 0 #654321,
+                1px -1px 0 #654321,
+                -1px 1px 0 #654321;
+        }
+        
+        .card {
+            cursor: pointer;
+            transition: all 0.2s;
+            user-select: none;
+        }
+        .card:hover:not(.disabled) {
+            transform: scale(1.05);
+        }
+        .card.selected {
+            box-shadow: 0 0 0 4px #d4af37, 0 8px 16px rgba(0,0,0,0.3);
+            transform: scale(1.05);
+        }
+        .card.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .action-btn {
+            font-family: 'Cinzel', serif;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            background: transparent;
+            border: 2px solid #8b4513;
+            color: #8b4513;
+            box-shadow: none;
+            transition: all 0.2s;
+            min-width: 90px;
+        }
+        .action-btn:hover:not(:disabled) {
+            background: #8b4513;
+            color: #fef3c7;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        .action-btn.active {
+            transform: none;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+        }
+        .action-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        
+        .status-pill {
+            font-family: 'Cinzel', serif;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            background: #8b4513;
+            border: 2px solid #d4af37;
+            color: #fef3c7;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .player-pill {
+            font-family: 'Cinzel', serif;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            background: transparent;
+            border: 2px solid #8b4513;
+            color: #8b4513;
+            box-shadow: none;
+        }
+        
+        .scroll-bg {
+            background: #e8d5b7;
+            border: 3px solid #8b4513;
+            box-shadow: inset 0 2px 4px rgba(139, 69, 19, 0.1), 0 2px 8px rgba(0,0,0,0.3);
+        }
+    </style>
+</head>
+<body class="min-h-screen p-3 sm:p-6 pb-28 sm:pb-28" style="background: #e8d5b7;">
+
+<div id="app" class="max-w-7xl mx-auto"></div>
+
+<script src="/shared.js"></script>
+<script>
+
+let ws;
+let connected = false;
+let playerId = null;
+let sessionId = null;
+let playerName = null;
+let gameData = null;
+let marketData = null;
+
+// UI state
+let selectedActionType = null;
+let selectedCards = { hand: [], market: [] };
+
+async function connect() {
+    try {
+        const response = await fetch('/api/connect', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({clientType: 'player'})
+        });
+        
+        if (!response.ok) throw new Error('Connection failed');
+        
+        const data = await response.json();
+        if (data.error) {
+            alert(data.error);
+            return;
+        }
+        
+        playerId = data.playerId;
+        playerName = data.playerName;
+        sessionId = data.sessionId;
+        connected = true;
+        
+        // Start polling for game state
+        setInterval(pollState, 500);
+        
+        // Start pinging to keep connection alive
+        setInterval(ping, 3000);
+        
+        render();
+    } catch (error) {
+        console.error('Connection error:', error);
+        setTimeout(connect, 2000);
+    }
+}
+
+async function pollState() {
+    if (!playerId || !sessionId) return;
+    try {
+        const [publicRes, privateRes] = await Promise.all([
+            fetch('/api/state'),
+            fetch(`/api/player_state?playerId=${playerId}&sessionId=${sessionId}`)
+        ]);
+        const newMarketData = await publicRes.json();
+        const newGameData = await privateRes.json();
+        
+        // Check if state changed
+        const stateChanged = JSON.stringify(marketData) !== JSON.stringify(newMarketData) ||
+                            JSON.stringify(gameData) !== JSON.stringify(newGameData);
+        
+        marketData = newMarketData;
+        gameData = newGameData;
+        
+        if (stateChanged) {
+            render();
+        }
+    } catch (error) {
+        console.error('Poll error:', error);
+    }
+}
+
+async function ping() {
+    if (!sessionId) return;
+    try {
+        await fetch('/api/ping', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({sessionId})
+        });
+    } catch (error) {
+        console.error('Ping error:', error);
+    }
+}
+
+connect();
+
+function render() {
+    const app = document.getElementById('app');
+
+    if (!playerId) {
+        app.innerHTML = `
+            <style>
+                @keyframes coinFlip {
+                    0% { transform: rotateY(0deg); }
+                    100% { transform: rotateY(360deg); }
+                }
+                .coin-flip {
+                    animation: coinFlip 1.5s ease-in-out infinite;
+                }
+            </style>
+            <div class="flex items-center justify-center min-h-screen">
+                <div class="text-center">
+                    <svg class="coin-flip w-24 h-24 mx-auto mb-6" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                        <circle cx="50" cy="50" r="45" fill="none" stroke="#8b4513" stroke-width="4"/>
+                        <circle cx="50" cy="50" r="35" fill="none" stroke="#8b4513" stroke-width="2"/>
+                        <circle cx="50" cy="50" r="25" fill="none" stroke="#8b4513" stroke-width="2"/>
+                        <circle cx="50" cy="50" r="6" fill="#8b4513"/>
+                        <circle cx="35" cy="50" r="3" fill="#8b4513"/>
+                        <circle cx="65" cy="50" r="3" fill="#8b4513"/>
+                        <circle cx="50" cy="35" r="3" fill="#8b4513"/>
+                        <circle cx="50" cy="65" r="3" fill="#8b4513"/>
+                    </svg>
+                    <p class="text-xl font-semibold ancient-title" style="color: #654321;">${connected ? 'Connecting to game...' : 'Establishing connection...'}</p>
+                </div>
+            </div>
+        `;
+        return;
+    }
+
+    if (!gameData || !marketData || !gameData.gameStarted) {
+        app.innerHTML = `
+            <style>
+                @keyframes coinFlip {
+                    0% { transform: rotateY(0deg); }
+                    100% { transform: rotateY(360deg); }
+                }
+                .coin-flip {
+                    animation: coinFlip 1.5s ease-in-out infinite;
+                }
+            </style>
+            <div class="flex items-center justify-center min-h-screen pb-24">
+                <div class="text-center">
+                    <svg class="coin-flip w-24 h-24 mx-auto mb-6" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                        <circle cx="50" cy="50" r="45" fill="none" stroke="#8b4513" stroke-width="4"/>
+                        <circle cx="50" cy="50" r="35" fill="none" stroke="#8b4513" stroke-width="2"/>
+                        <circle cx="50" cy="50" r="25" fill="none" stroke="#8b4513" stroke-width="2"/>
+                        <circle cx="50" cy="50" r="6" fill="#8b4513"/>
+                        <circle cx="35" cy="50" r="3" fill="#8b4513"/>
+                        <circle cx="65" cy="50" r="3" fill="#8b4513"/>
+                        <circle cx="50" cy="35" r="3" fill="#8b4513"/>
+                        <circle cx="50" cy="65" r="3" fill="#8b4513"/>
+                    </svg>
+                    <p class="text-xl font-semibold ancient-title" style="color: #654321;">Waiting for host to start game</p>
+                </div>
+            </div>
+            
+            <!-- Fixed Bottom Status Panel -->
+            <div class="fixed bottom-0 left-0 right-0 parchment-bg border-t-4 border-amber-800 shadow-2xl z-50">
+                <div class="max-w-7xl mx-auto p-3 h-[76px] flex items-center">
+                    <div class="flex items-center justify-center w-full">
+                        <span class="player-pill px-3 py-1.5 rounded font-bold text-xs whitespace-nowrap">
+                            ${playerName}
+                        </span>
+                    </div>
+                </div>
+            </div>
+        `;
+        return;
+    }
+
+    // Build market cards display
+    let marketCards = '';
+    let cardIndex = 0;
+    if (marketData && marketData.market) {
+        for (const [goodType, count] of Object.entries(marketData.market)) {
+            const style = cardStyles[goodType];
+            for (let i = 0; i < count; i++) {
+                const isSelected = selectedCards.market.includes(cardIndex);
+                const isDisabled = selectedActionType === 'Sell' || !selectedActionType || !gameData.myTurn;
+                marketCards += `
+                    <div onclick="toggleMarketCard(${cardIndex})" 
+                        class="card ${style.bg} ${style.border} border-2 rounded-lg w-20 h-28 text-sm flex items-center justify-center font-bold text-white shadow-lg ${isSelected ? 'selected' : ''} ${isDisabled ? 'disabled' : ''}"
+                        data-card-index="${cardIndex}" data-good-type="${goodType}">
+                        <div>${style.text}</div>
+                    </div>
+                `;
+                cardIndex++;
+            }
+        }
+    }
+    
+    const emptyMarketSlots = Math.max(0, 5 - (marketData?.market ? Object.values(marketData.market).reduce((a, b) => a + b, 0) : 0));
+    const placeholderCards = '<div class="w-20 h-28 border-2 border-dashed rounded-lg" style="border-color: #a0522d; background: #f5e6d3;"></div>'.repeat(emptyMarketSlots);
+
+    // Build players display
+    const sortedPlayers = [...(marketData?.players || [])].sort((a, b) => {
+        const aIsMe = a.name === playerName;
+        const bIsMe = b.name === playerName;
+        if (aIsMe) return -1;
+        if (bIsMe) return 1;
+        return 0;
+    });
+    
+    const players = sortedPlayers.map((player, playerIndex) => {
+        const isMyPlayer = player.name === playerName;
+        const isActive = marketData.currentPlayer === player.name;
+        
+        let statusPill = '';
+        if (marketData.gameStarted && !marketData.isTerminal) {
+            statusPill = isActive 
+                ? '<span class="px-3 py-1.5 rounded text-sm animate-pulse" style="background: transparent; border: 2px solid #8b4513; color: #8b4513; font-weight: 600;">Playing</span>'
+                : '<span class="px-3 py-1.5 rounded text-sm" style="background: transparent; border: 1px solid #a89078; color: #a89078;">Waiting</span>';
+        } else if (marketData.isTerminal) {
+            const scores = marketData.players.map(p => p.score);
+            const maxScore = Math.max(...scores);
+            if (player.score === maxScore) {
+                statusPill = '<span class="status-pill px-3 py-1 rounded text-xs font-bold ancient-title" style="background: #d4af37; color: #654321;">WINNER</span>';
+            }
+        }
+
+        // Build hand cards - SHOW MY CAMELS, HIDE opponent's goods
+        let handCards = '';
+        let emptyHandSlots = 7;
+        const maxHandSize = 7;
+        
+        if (isMyPlayer) {
+            // Show my actual hand INCLUDING CAMELS
+            const nonCamelCount = Object.entries(gameData.goods || {})
+                .filter(([type]) => type !== 'CAMEL')
+                .reduce((sum, [, count]) => sum + count, 0);
+            
+            const displayHandSize = Math.min(nonCamelCount, maxHandSize);
+            emptyHandSlots = maxHandSize - displayHandSize;
+            
+            let cardsRendered = 0;
+            
+            // First render non-camel cards (up to 7)
+            for (const [goodType, count] of Object.entries(gameData.goods || {})) {
+                if (goodType === 'CAMEL') continue;
+                if (cardsRendered >= maxHandSize) break;
+                
+                const style = cardStyles[goodType];
+                const cardsToShow = Math.min(count, maxHandSize - cardsRendered);
+                
+                for (let i = 0; i < cardsToShow; i++) {
+                    const idx = getHandCardIndex(goodType, i);
+                    const isSelected = selectedCards.hand.includes(idx);
+                    const isDisabled = selectedActionType === 'Take' || !selectedActionType || !gameData.myTurn;
+                    handCards += `
+                        <div onclick="toggleHandCard(${idx})" 
+                            class="card ${style.bg} ${style.border} border-2 rounded-lg w-14 h-20 text-xs flex items-center justify-center font-bold text-white shadow-lg ${isSelected ? 'selected' : ''} ${isDisabled ? 'disabled' : ''}"
+                            data-card-index="${idx}" data-good-type="${goodType}">
+                            <div>${style.text}</div>
+                        </div>
+                    `;
+                    cardsRendered++;
+                }
+            }
+            
+            // Then render camels (shown separately, not counted in 7-card limit)
+            const camelCount = gameData.goods?.CAMEL || 0;
+            if (camelCount > 0) {
+                const camelStyle = cardStyles.CAMEL;
+                for (let i = 0; i < camelCount; i++) {
+                    const idx = getHandCardIndex('CAMEL', i);
+                    const isSelected = selectedCards.hand.includes(idx);
+                    const isDisabled = selectedActionType === 'Take' || !selectedActionType || !gameData.myTurn;
+                    handCards += `
+                        <div onclick="toggleHandCard(${idx})" 
+                            class="card ${camelStyle.bg} ${camelStyle.border} border-2 rounded-lg w-14 h-20 text-xs flex items-center justify-center font-bold text-white shadow-lg ${isSelected ? 'selected' : ''} ${isDisabled ? 'disabled' : ''}"
+                            data-card-index="${idx}" data-good-type="CAMEL">
+                            <div>${camelStyle.text}</div>
+                        </div>
+                    `;
+                }
+            }
+        } else {
+            const opponentHandSize = Object.entries(player.goods || {})
+                .filter(([type]) => type !== 'CAMEL')
+                .reduce((sum, [, count]) => sum + count, 0);
+            
+            const displayHandSize = Math.min(opponentHandSize, maxHandSize);
+            emptyHandSlots = maxHandSize - displayHandSize;
+            handCards = '<div class="border-2 rounded-lg flex items-center justify-center" style="width: 56px; height: 80px; border-color: #a0522d; background: #d4af37; color: #654321;"><i class="fa-solid fa-eye-slash"></i></div>'.repeat(displayHandSize);
+        }
+        
+        const placeholderHandCards = '<div class="w-14 h-20 border-2 border-dashed rounded-lg" style="border-color: #a0522d; background: #f5e6d3;"></div>'.repeat(emptyHandSlots);
+
+        return `
+            <div class="p-4">
+                <div class="text-center mb-4">
+                    <h3 class="text-xl font-bold ancient-title mb-2" style="color: #654321;">${player.name}${isMyPlayer ? ' (You)' : ''}</h3>
+                    ${statusPill ? `<div>${statusPill}</div>` : ''}
+                </div>
+                <div class="flex items-center justify-center gap-4 mb-4">
+                    <div class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg" style="background: #8b4513; border: 2px solid #d4af37; min-width: 80px; height: 40px;">
+                        <span class="coin-icon" style="font-size: 18px;"><i class="fa-solid fa-coins"></i></span>
+                        <span class="font-bold text-lg" style="color: #fef3c7;">${player.score}</span>
+                    </div>
+                    <div class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg" style="background: #e8d5b7; border: 2px solid #a0522d; min-width: 80px; height: 40px;">
+                        <span class="coin-icon" style="font-size: 18px;"><i class="fa-solid fa-3"></i></span>
+                        <span class="font-bold" style="color: #654321;">${player.bonusCounts?.THREE ?? 0}</span>
+                    </div>
+                    <div class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg" style="background: #e8d5b7; border: 2px solid #a0522d; min-width: 80px; height: 40px;">
+                        <span class="coin-icon" style="font-size: 18px;"><i class="fa-solid fa-4"></i></span>
+                        <span class="font-bold" style="color: #654321;">${player.bonusCounts?.FOUR ?? 0}</span>
+                    </div>
+                    <div class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg" style="background: #e8d5b7; border: 2px solid #a0522d; min-width: 80px; height: 40px;">
+                        <span class="coin-icon" style="font-size: 18px;"><i class="fa-solid fa-5"></i></span>
+                        <span class="font-bold" style="color: #654321;">${player.bonusCounts?.FIVE ?? 0}</span>
+                    </div>
+                    <div class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg" style="background: #E19A4F; border: 2px solid #A86A2F; min-width: 80px; height: 40px;">
+                        <span class="coin-icon" style="font-size: 18px;"><i class="fa-solid fa-horse"></i></span>
+                        <span class="font-bold" style="color: #8b4513;">${player.camelCount || 0}</span>
+                    </div>
+                </div>
+                <div>
+                    <div class="flex gap-2 flex-wrap justify-center">${handCards}${placeholderHandCards}</div>
+                </div>
+            </div>
+        `;
+    }).map((html, idx) => `<div>${html}</div>`);
+
+    const marketCoinsDisplay = Object.keys(cardStyles)
+        .filter(goodType => goodType !== 'CAMEL')
+        .map(goodType => {
+            const coins = marketData.marketCoins?.[goodType] || [];
+            const style = cardStyles[goodType];
+            
+            // Show up to 9 slots (maximum coins that can appear for a good type)
+            const maxCoins = 9;
+            let coinsHTML = '';
+            
+            for (let i = 0; i < maxCoins; i++) {
+                if (i < coins.length) {
+                    // Show actual coin
+                    coinsHTML += `
+                        <div class="${style.bg} ${style.border} border-2 text-white rounded-full w-7 sm:w-8 h-7 sm:h-8 flex items-center justify-center text-xs sm:text-sm font-bold shadow-md">
+                            ${coins[i]}
+                        </div>
+                    `;
+                } else {
+                    // Show empty placeholder
+                    coinsHTML += `
+                        <div class="border-2 border-dashed rounded-full w-7 sm:w-8 h-7 sm:h-8" style="border-color: #a0522d; background: #f5e6d3;"></div>
+                    `;
+                }
+            }
+            
+            return `
+            <div class="flex gap-1 sm:gap-2 flex-wrap items-center justify-center min-h-[32px] sm:min-h-[36px]">
+                ${coinsHTML}
+            </div>
+            `;
+        }).join('');
+    
+    const bonusTokensDisplay = `
+        <div class="flex gap-1 sm:gap-2 flex-wrap items-center justify-center min-h-[32px] sm:min-h-[36px]">
+            ${Array(9).fill(0).map((_, i) => {
+                if (i < (marketData.marketBonusTokens?.THREE ?? 0)) {
+                    return `
+                        <div class="border-2 rounded-full w-7 sm:w-8 h-7 sm:h-8 flex items-center justify-center shadow-md overflow-hidden" style="background: #8b4513; border-color: #d4af37;">
+                            <img src="${dots3SVG}" alt="3" class="w-5 sm:w-6 h-5 sm:h-6" />
+                        </div>
+                    `;
+                } else {
+                    return `<div class="border-2 border-dashed rounded-full w-7 sm:w-8 h-7 sm:h-8" style="border-color: #a0522d; background: #f5e6d3;"></div>`;
+                }
+            }).join('')}
+        </div>
+        <div class="flex gap-1 sm:gap-2 flex-wrap items-center justify-center min-h-[32px] sm:min-h-[36px]">
+            ${Array(9).fill(0).map((_, i) => {
+                if (i < (marketData.marketBonusTokens?.FOUR ?? 0)) {
+                    return `
+                        <div class="border-2 rounded-full w-7 sm:w-8 h-7 sm:h-8 flex items-center justify-center shadow-md overflow-hidden" style="background: #8b4513; border-color: #d4af37;">
+                            <img src="${dots4SVG}" alt="4" class="w-5 sm:w-6 h-5 sm:h-6" />
+                        </div>
+                    `;
+                } else {
+                    return `<div class="border-2 border-dashed rounded-full w-7 sm:w-8 h-7 sm:h-8" style="border-color: #a0522d; background: #f5e6d3;"></div>`;
+                }
+            }).join('')}
+        </div>
+        <div class="flex gap-1 sm:gap-2 flex-wrap items-center justify-center min-h-[32px] sm:min-h-[36px]">
+            ${Array(9).fill(0).map((_, i) => {
+                if (i < (marketData.marketBonusTokens?.FIVE ?? 0)) {
+                    return `
+                        <div class="border-2 rounded-full w-7 sm:w-8 h-7 sm:h-8 flex items-center justify-center shadow-md overflow-hidden" style="background: #8b4513; border-color: #d4af37;">
+                            <img src="${dots5SVG}" alt="5" class="w-5 sm:w-6 h-5 sm:h-6" />
+                        </div>
+                    `;
+                } else {
+                    return `<div class="border-2 border-dashed rounded-full w-7 sm:w-8 h-7 sm:h-8" style="border-color: #a0522d; background: #f5e6d3;"></div>`;
+                }
+            }).join('')}
+        </div>
+    `;
+
+    // Get action description HTML using the getActionDescription utility from shared.js
+    const getActionDescriptionHTML = (action) => {
+        if (!action) return '';
+        
+        const makeGoodSpan = (type) => {
+            const style = cardStyles[type];
+            return `<span class="font-semibold" style="color: ${style?.borderColor}">${style?.text || type}</span>`;
+        };
+        
+        if (action.type === 'Sell') {
+            const goods = Object.entries(action.offered || {}).map(([type, count]) => `${count} ${makeGoodSpan(type)}`).join(', ');
+            return `<span class="italic">sold ${goods}</span>`;
+        } else if (action.type === 'Take') {
+            const goods = Object.entries(action.requested || {}).map(([type, count]) => `${count} ${makeGoodSpan(type)}`).join(', ');
+            return `<span class="italic">took ${goods}</span>`;
+        } else if (action.type === 'Trade') {
+            const offered = Object.entries(action.offered || {}).map(([type, count]) => `${count} ${makeGoodSpan(type)}`).join(', ');
+            const requested = Object.entries(action.requested || {}).map(([type, count]) => `${count} ${makeGoodSpan(type)}`).join(', ');
+            return `<span class="italic">traded ${offered} for ${requested}</span>`;
+        }
+        return '';
+    };
+
+    let marketStatusText = '';
+    if (!marketData.gameStarted) {
+        marketStatusText = marketData.playersReady ? 'Waiting to start' : 'Waiting for players';
+    } else if (marketData.isTerminal) {
+        if (marketData.botTimeoutPlayer) {
+            marketStatusText = `Closed | ${marketData.botTimeoutPlayer} exceeded timeout`;
+        } else if (marketData.lastAction && marketData.lastAction.player) {
+            marketStatusText = `Closed | Round ${marketData.round}: ${marketData.lastAction.player} ${getActionDescriptionHTML(marketData.lastAction)}`;
+        } else {
+            marketStatusText = 'Closed';
+        }
+    } else {
+        if (marketData.lastAction && marketData.lastAction.player) {
+            marketStatusText = `Open | Round ${marketData.round}: ${marketData.lastAction.player} ${getActionDescriptionHTML(marketData.lastAction)}`;
+        } else {
+            marketStatusText = 'Open | Market just opened';
+        }
+    }
+
+    // Action controls for when it's player's turn
+    let actionControls = '';
+    if (gameData.myTurn && !marketData.isTerminal) {
+        // Check if action is valid (manual check since validateAction needs DOM)
+        let isValidAction = false;
+        
+        if (selectedActionType === 'Take') {
+            if (selectedCards.market.length > 0) {
+                const marketCards = getSelectedMarketCards();
+                const uniqueTypes = [...new Set(marketCards)];
+                isValidAction = uniqueTypes.length === 1 && marketCards.every(type => type !== 'CAMEL');
+            }
+        } else if (selectedActionType === 'Sell') {
+            if (selectedCards.hand.length > 0) {
+                const handCards = getSelectedHandCards();
+                const uniqueTypes = [...new Set(handCards)];
+                if (!uniqueTypes.includes('CAMEL') && uniqueTypes.length === 1) {
+                    const goodType = uniqueTypes[0];
+                    const count = handCards.length;
+                    if ((goodType === 'DIAMOND' || goodType === 'GOLD' || goodType === 'SILVER')) {
+                        isValidAction = count >= 2;
+                    } else {
+                        isValidAction = true;
+                    }
+                }
+            }
+        } else if (selectedActionType === 'Trade') {
+            if (selectedCards.hand.length >= 2 && selectedCards.market.length >= 2 && 
+                selectedCards.hand.length === selectedCards.market.length) {
+                const handCards = getSelectedHandCards();
+                const marketCards = getSelectedMarketCards();
+                const hasCamelsInMarket = marketCards.includes('CAMEL');
+                
+                if (!hasCamelsInMarket) {
+                    const currentHandSize = Object.entries(gameData.goods || {})
+                        .filter(([type]) => type !== 'CAMEL')
+                        .reduce((sum, [, count]) => sum + count, 0);
+                    const handCardsNonCamel = handCards.filter(type => type !== 'CAMEL').length;
+                    const marketCardsNonCamel = marketCards.filter(type => type !== 'CAMEL').length;
+                    const finalHandSize = currentHandSize - handCardsNonCamel + marketCardsNonCamel;
+                    isValidAction = finalHandSize <= 7;
+                }
+            }
+        }
+        
+        actionControls = `
+            <div class="fixed bottom-0 left-0 right-0 parchment-bg border-t-4 border-amber-800 shadow-2xl z-50">
+                <div class="max-w-7xl mx-auto p-3">
+                    <div class="flex flex-col sm:flex-row items-center justify-between gap-3">
+                        <div class="flex items-center gap-2 w-full sm:w-auto">
+                            <span class="px-3 py-1.5 rounded font-bold text-xs whitespace-nowrap animate-pulse" style="background: transparent; border: 2px solid #8b4513; color: #8b4513; font-weight: 600;">
+                                <i class="fa-solid fa-hourglass-half mr-1"></i>YOUR TURN
+                            </span>
+                            <span id="actionInstructions" class="text-xs hidden lg:inline" style="color: #654321;">
+                                ${selectedActionType === 'Take' ? 'TAKE: Select all cards of ONE type from market' :
+                                  selectedActionType === 'Sell' ? 'SELL: Select cards of same type (no camels, precious goods need 2+ cards)' :
+                                  selectedActionType === 'Trade' ? 'TRADE: Exchange 2+ hand cards for equal market cards (no camels, max 7 cards)' :
+                                  'Select an action'}
+                            </span>
+                        </div>
+                        
+                        <div class="flex items-center gap-1 justify-center w-full sm:w-auto flex-wrap">
+                            <button onclick="selectActionType('Take')" id="btnTake" 
+                                class="action-btn px-4 py-2 rounded-lg font-bold text-xs transition-colors cursor-pointer ${selectedActionType === 'Take' ? 'active' : ''}">
+                                <i class="fa-solid fa-hand mr-1"></i>TAKE
+                            </button>
+                            <button onclick="selectActionType('Sell')" id="btnSell"
+                                class="action-btn px-4 py-2 rounded-lg font-bold text-xs transition-colors cursor-pointer ${selectedActionType === 'Sell' ? 'active' : ''}">
+                                <i class="fa-solid fa-coins mr-1"></i>SELL
+                            </button>
+                            <button onclick="selectActionType('Trade')" id="btnTrade"
+                                class="action-btn px-4 py-2 rounded-lg font-bold text-xs transition-colors cursor-pointer ${selectedActionType === 'Trade' ? 'active' : ''}">
+                                <i class="fa-solid fa-right-left mr-1"></i>TRADE
+                            </button>
+                            
+                            <div class="h-6 w-px hidden sm:block" style="background: #8b4513; opacity: 0.3;"></div>
+                            
+                            <button onclick="confirmAction()" id="btnConfirm"
+                                class="action-btn px-4 py-2 rounded-lg font-bold text-xs transition-colors cursor-pointer"
+                                ${!isValidAction ? 'disabled' : ''}>
+                                <i class="fa-solid fa-check mr-1"></i>CONFIRM
+                            </button>
+                            <button onclick="resetSelection()" id="btnCancel"
+                                class="action-btn px-4 py-2 rounded-lg font-bold text-xs transition-colors cursor-pointer">
+                                <i class="fa-solid fa-rotate-right mr-1"></i>CANCEL
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    } else if (!marketData.isTerminal) {
+        actionControls = `
+            <div class="fixed bottom-0 left-0 right-0 parchment-bg border-t-4 border-amber-800 shadow-2xl z-50">
+                <div class="max-w-7xl mx-auto p-3">
+                    <div class="flex flex-col sm:flex-row items-center justify-between gap-3">
+                        <div class="flex items-center gap-2 w-full sm:w-auto">
+                            <span class="px-3 py-1.5 rounded font-bold text-xs whitespace-nowrap" style="background: transparent; border: 1px solid #a89078; color: #a89078;">
+                                <i class="fa-solid fa-clock mr-1"></i>WAITING
+                            </span>
+                            <span class="text-xs font-medium hidden lg:inline" style="color: #654321;">
+                                Waiting for other player...
+                            </span>
+                        </div>
+                        
+                        <div class="flex items-center gap-1 flex-wrap justify-center w-full sm:w-auto">
+                            <button disabled class="action-btn px-4 py-2 rounded-lg font-bold text-xs">
+                                <i class="fa-solid fa-hand mr-1"></i>TAKE
+                            </button>
+                            <button disabled class="action-btn px-4 py-2 rounded-lg font-bold text-xs">
+                                <i class="fa-solid fa-coins mr-1"></i>SELL
+                            </button>
+                            <button disabled class="action-btn px-4 py-2 rounded-lg font-bold text-xs">
+                                <i class="fa-solid fa-right-left mr-1"></i>TRADE
+                            </button>
+                            
+                            <div class="h-6 w-px hidden sm:block" style="background: #8b4513; opacity: 0.3;"></div>
+                            
+                            <button disabled class="action-btn px-4 py-2 rounded-lg font-bold text-xs">
+                                <i class="fa-solid fa-check mr-1"></i>CONFIRM
+                            </button>
+                            <button disabled class="action-btn px-4 py-2 rounded-lg font-bold text-xs">
+                                <i class="fa-solid fa-rotate-right mr-1"></i>CANCEL
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    app.innerHTML = `
+<div class="flex items-center justify-center mb-4">
+    <div class="text-center">
+        <h2 class="text-xl font-bold ancient-title mb-2" style="color: #654321;">Market</h2>
+        <div style="color: #654321;">
+            <div class="font-semibold text-lg">${marketData.gameStarted && !marketData.isTerminal && !marketData.botTimeoutPlayer ? 'Open' : 'Closed'}</div>
+            <div class="text-base">${marketStatusText}</div>
+        </div>
+    </div>
+</div>
+
+<div class="flex gap-2 sm:gap-4 justify-center flex-wrap mb-4">
+    ${marketCards}${placeholderCards}
+    <span class="inline-flex flex-col items-center justify-center border-2 px-4 py-2 rounded-lg font-semibold" style="border-color: #8b4513; background: #8b4513; color: #fef3c7;">
+        <span class="text-xl leading-none">${marketData.gameStarted ? marketData.deckSize : '0'}</span>
+        <span class="text-sm tracking-wide">goods left</span>
+    </span>
+</div>
+
+<!-- Coin Stacks -->
+<div class="mt-6 mb-8">
+    <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
+        ${marketCoinsDisplay}
+        ${bonusTokensDisplay}
+    </div>
+</div>
+
+<!-- Separator line -->
+<div style="height: 1px; background: #8b4513; opacity: 0.3; margin: 2rem 0;"></div>
+
+<!-- Player boards with vertical separator -->
+<div class="${gameData.myTurn ? 'pb-32' : 'pb-20'}">
+    <div class="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-[1fr_2px_1fr] gap-8">
+        ${players[0] || ''}
+        <div class="hidden lg:block" style="background: #8b4513; opacity: 0.3;"></div>
+        ${players[1] || ''}
+    </div>
+</div>
+
+${actionControls}
+    `;
+    
+    updateActionButtons();
+    
+    // Reset end game shown flag if game is not terminal (new game started)
+    if (!marketData.isTerminal) {
+        endGameShown = false;
+    }
+    
+    // Show end-game score reveal if game is terminal
+    if (marketData.isTerminal && !endGameShown) {
+        endGameShown = true;
+        showEndGameTransition();
+    }
+}
+
+// End-game score reveal
+let endGameShown = false;
+
+function showEndGameTransition() {
+    // Show loading screen for 3 seconds
+    const app = document.getElementById('app');
+    app.innerHTML = `
+        <style>
+            @keyframes coinFlip {
+                0% { transform: rotateY(0deg); }
+                100% { transform: rotateY(360deg); }
+            }
+            .coin-flip {
+                animation: coinFlip 1.5s ease-in-out infinite;
+            }
+        </style>
+        <div class="flex items-center justify-center min-h-screen">
+            <div class="text-center">
+                <svg class="coin-flip w-24 h-24 mx-auto mb-6" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="50" cy="50" r="45" fill="none" stroke="#8b4513" stroke-width="4"/>
+                    <circle cx="50" cy="50" r="35" fill="none" stroke="#8b4513" stroke-width="2"/>
+                    <circle cx="50" cy="50" r="25" fill="none" stroke="#8b4513" stroke-width="2"/>
+                    <circle cx="50" cy="50" r="6" fill="#8b4513"/>
+                    <circle cx="35" cy="50" r="3" fill="#8b4513"/>
+                    <circle cx="65" cy="50" r="3" fill="#8b4513"/>
+                    <circle cx="50" cy="35" r="3" fill="#8b4513"/>
+                    <circle cx="50" cy="65" r="3" fill="#8b4513"/>
+                </svg>
+                <p class="text-xl font-semibold ancient-title" style="color: #654321;">Calculating final scores...</p>
+            </div>
+        </div>
+    `;
+    
+    // After 3 seconds, show the score breakdown
+    setTimeout(() => {
+        renderEndGameScores();
+    }, 3000);
+}
+
+function renderEndGameScores() {
+    const app = document.getElementById('app');
+    
+    // Sort players so the current player is first
+    const sortedPlayers = [...(marketData?.players || [])].sort((a, b) => {
+        const aIsMe = a.name === playerName;
+        const bIsMe = b.name === playerName;
+        if (aIsMe) return -1;
+        if (bIsMe) return 1;
+        return 0;
+    });
+    
+    app.innerHTML = `
+<style>
+    @keyframes rowAppear {
+        0% { 
+            opacity: 0;
+            transform: translateX(-20px);
+        }
+        100% { 
+            opacity: 1;
+            transform: translateX(0);
+        }
+    }
+    
+    @keyframes winnerAppear {
+        0% { 
+            opacity: 0;
+            transform: scale(0.5) translateY(-20px);
+        }
+        60% { 
+            opacity: 1;
+            transform: scale(1.1) translateY(0);
+        }
+        80% { 
+            transform: scale(0.95) translateY(0);
+        }
+        100% { 
+            opacity: 1;
+            transform: scale(1) translateY(0);
+        }
+    }
+    
+    @keyframes winnerPulse {
+        0%, 100% { 
+            transform: scale(1);
+            filter: brightness(1);
+        }
+        50% { 
+            transform: scale(1.05);
+            filter: brightness(1.2);
+        }
+    }
+    
+    .score-line {
+        opacity: 0;
+        animation: rowAppear 0.4s ease-out forwards;
+    }
+    
+    .score-number {
+        display: inline-block;
+    }
+    
+    .winner-badge {
+        opacity: 0;
+        animation: winnerAppear 0.8s ease-out forwards;
+    }
+    
+    .winner-badge span {
+        animation: winnerPulse 2s ease-in-out infinite;
+        animation-delay: 0.8s;
+    }
+    
+    .score-icon {
+        display: inline-block;
+        width: 24px;
+        text-align: center;
+        margin-right: 12px;
+    }
+    
+    body {
+        background: #e8d5b7;
+    }
+</style>
+
+<div class="min-h-screen p-6" style="background: #e8d5b7;">
+    <div class="flex items-center justify-center mb-8">
+        <div class="text-center">
+            <h2 class="text-2xl sm:text-3xl font-bold ancient-title mb-2" style="color: #654321;">Market Closed</h2>
+        </div>
+    </div>
+
+    <!-- Player score breakdown -->
+    <div class="pb-20">
+        <div id="scoreReveal" class="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-[1fr_2px_1fr] gap-8">
+            <!-- Scores will be animated in here -->
+        </div>
+    </div>
+</div>
+    `;
+    
+    // Start the score animation
+    setTimeout(() => animateScoreReveal(sortedPlayers), 500);
+}
+
+function animateScoreReveal(players) {
+    const container = document.getElementById('scoreReveal');
+    if (!container) return;
+    
+    // Determine which bonus types should be shown
+    const anyPlayerHasCamel = players.some(p => p.camelBonus > 0);
+    const anyPlayerHas3x = players.some(p => (p.bonusCounts?.THREE || 0) > 0);
+    const anyPlayerHas4x = players.some(p => (p.bonusCounts?.FOUR || 0) > 0);
+    const anyPlayerHas5x = players.some(p => (p.bonusCounts?.FIVE || 0) > 0);
+    
+    // Create player sections side by side
+    const playerSections = players.map((player, index) => {
+        // Outer wrapper to contain both section and badge
+        const wrapper = document.createElement('div');
+        wrapper.style.cssText = 'position: relative;';
+        
+        const section = document.createElement('div');
+        section.className = 'p-4';
+        section.style.cssText = 'display: flex; flex-direction: column;';
+        
+        const nameEl = document.createElement('h3');
+        nameEl.className = 'text-lg sm:text-xl font-bold mb-3 text-center ancient-title';
+        nameEl.style.color = '#654321';
+        const isMe = player.name === playerName;
+        nameEl.textContent = player.name + (isMe ? ' (You)' : '');
+        section.appendChild(nameEl);
+        
+        // Wrapper for content
+        const contentWrapper = document.createElement('div');
+        contentWrapper.style.cssText = 'display: flex; flex-direction: column;';
+        contentWrapper.className = 'content-wrapper';
+        
+        const scoreLines = document.createElement('div');
+        scoreLines.className = 'space-y-2 text-sm sm:text-base';
+        scoreLines.dataset.playerIndex = index;
+        contentWrapper.appendChild(scoreLines);
+        
+        // Add total line at the bottom (initially showing 0)
+        const totalLine = document.createElement('div');
+        totalLine.className = 'total-line flex justify-between items-center pt-2 font-bold text-xl sm:text-2xl';
+        totalLine.style.cssText = 'border-top: 3px solid #8b4513; margin-top: 12px;';
+        totalLine.innerHTML = `
+            <span class="ancient-title" style="color: #654321;">Total</span>
+            <span class="total-number coin-icon" style="font-size: 1.5em;">0</span>
+        `;
+        contentWrapper.appendChild(totalLine);
+        
+        section.appendChild(contentWrapper);
+        wrapper.appendChild(section);
+        
+        // Add to grid - with divider between
+        if (index === 0) {
+            container.appendChild(wrapper);
+            // Add vertical divider
+            const divider = document.createElement('div');
+            divider.className = 'hidden lg:block';
+            divider.style.cssText = 'background: #8b4513; opacity: 0.3;';
+            container.appendChild(divider);
+        } else {
+            container.appendChild(wrapper);
+        }
+        
+        return { wrapper, section, scoreLines, player, runningTotal: 0, totalLine };
+    });
+    
+    let delay = 500;
+    const delayIncrement = 1000;
+    
+    // Helper function to animate a number counting up
+    const animateNumber = (element, targetValue, duration = 400) => {
+        const startValue = 0;
+        const startTime = performance.now();
+        
+        const updateNumber = (currentTime) => {
+            const elapsed = currentTime - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            
+            // Ease out function for smooth deceleration
+            const easeOut = 1 - Math.pow(1 - progress, 3);
+            const currentValue = Math.floor(startValue + (targetValue - startValue) * easeOut);
+            
+            element.textContent = (targetValue > 0 && currentValue > 0) ? `+${currentValue}` : currentValue;
+            
+            if (progress < 1) {
+                requestAnimationFrame(updateNumber);
+            } else {
+                element.textContent = targetValue > 0 ? `+${targetValue}` : targetValue;
+            }
+        };
+        
+        requestAnimationFrame(updateNumber);
+    };
+    
+    // Helper function to add a score line and update total
+    const addScoreLine = (label, getValue, isBonus = false) => {
+        setTimeout(() => {
+            playerSections.forEach(({ scoreLines, player, totalLine }, idx) => {
+                const value = getValue(player);
+                const previousTotal = playerSections[idx].runningTotal;
+                playerSections[idx].runningTotal += value;
+                
+                const line = document.createElement('div');
+                line.className = 'score-line flex justify-between items-center';
+                line.innerHTML = `
+                    <span class="${isBonus ? '' : 'font-semibold'}" style="color: #654321;">${label}</span>
+                    <span class="score-number font-bold" style="color: ${isBonus ? '#c87533' : '#8b4513'};">0</span>
+                `;
+                scoreLines.appendChild(line);
+                
+                // Animate the score number
+                const scoreNumber = line.querySelector('.score-number');
+                setTimeout(() => {
+                    animateNumber(scoreNumber, value, 400);
+                }, 100);
+                
+                // Update the total with animation
+                const totalNumber = totalLine.querySelector('.total-number');
+                setTimeout(() => {
+                    // Animate total from previous value to new value
+                    const totalStartValue = previousTotal;
+                    const totalTargetValue = playerSections[idx].runningTotal;
+                    const startTime = performance.now();
+                    
+                    const updateTotal = (currentTime) => {
+                        const elapsed = currentTime - startTime;
+                        const progress = Math.min(elapsed / 400, 1);
+                        const easeOut = 1 - Math.pow(1 - progress, 3);
+                        const currentValue = Math.floor(totalStartValue + (totalTargetValue - totalStartValue) * easeOut);
+                        
+                        totalNumber.textContent = currentValue;
+                        
+                        if (progress < 1) {
+                            requestAnimationFrame(updateTotal);
+                        } else {
+                            totalNumber.textContent = totalTargetValue;
+                        }
+                    };
+                    
+                    requestAnimationFrame(updateTotal);
+                }, 100);
+            });
+        }, delay);
+        delay += delayIncrement;
+    };
+    
+    // 1. Goods Score
+    addScoreLine('<i class="fa-solid fa-coins coin-icon score-icon"></i>Goods', p => p.rawScore || 0);
+    
+    // 2. Camel Bonus (if applicable)
+    if (anyPlayerHasCamel) {
+        addScoreLine('<i class="fa-solid fa-horse coin-icon score-icon"></i>Camel', p => p.camelBonus || 0, true);
+    }
+    
+    // 3. 3x Bonus (if applicable)
+    if (anyPlayerHas3x) {
+        addScoreLine(
+            '<i class="fa-solid fa-3 coin-icon score-icon"></i>3x Bonus',
+            p => p.bonus3x || 0,
+            true
+        );
+    }
+    
+    // 4. 4x Bonus (if applicable)
+    if (anyPlayerHas4x) {
+        addScoreLine(
+            '<i class="fa-solid fa-4 coin-icon score-icon"></i>4x Bonus',
+            p => p.bonus4x || 0,
+            true
+        );
+    }
+    
+    // 5. 5x Bonus (if applicable)
+    if (anyPlayerHas5x) {
+        addScoreLine(
+            '<i class="fa-solid fa-5 coin-icon score-icon"></i>5x Bonus',
+            p => p.bonus5x || 0,
+            true
+        );
+    }
+    
+    // Add timeout penalty if applicable
+    if (marketData.botTimeoutPlayer) {
+        addScoreLine(
+            '<i class="fa-solid fa-stopwatch coin-icon score-icon"></i>Penalty',
+            p => p.name === marketData.botTimeoutPlayer ? -(p.score + 1) : 0,
+            false
+        );
+    }
+    
+    // Wait a bit, then show winner badge
+    delay += 500;
+    setTimeout(() => {
+        // Check if game ended due to timeout
+        if (marketData.botTimeoutPlayer) {
+            playerSections.forEach(({ wrapper, player }) => {
+                if (player.name !== marketData.botTimeoutPlayer) {
+                    const badge = document.createElement('div');
+                    badge.className = 'winner-badge text-center mt-4';
+                    badge.innerHTML = '<span class="inline-block px-4 py-2 rounded-full font-bold text-base sm:text-lg ancient-title" style="background: #d4af37; color: #654321; border: 2px solid #8b4513; box-shadow: 0 4px 8px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.4);"><i class="fa-solid fa-crown mr-2"></i>WINNER!</span>';
+                    wrapper.appendChild(badge);
+                }
+            });
+        } else {
+            // Normal game ending - determine winner by score
+            const maxScore = Math.max(...players.map(p => p.score));
+            playerSections.forEach(({ wrapper, player }) => {
+                if (player.score === maxScore) {
+                    const badge = document.createElement('div');
+                    badge.className = 'winner-badge text-center mt-4';
+                    badge.innerHTML = '<span class="inline-block px-4 py-2 rounded-full font-bold text-base sm:text-lg ancient-title" style="background: #d4af37; color: #654321; border: 2px solid #8b4513; box-shadow: 0 4px 8px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.4);"><i class="fa-solid fa-crown mr-2"></i>WINNER!</span>';
+                    wrapper.appendChild(badge);
+                }
+            });
+        }
+    }, delay);
+}
+
+function selectActionType(type) {
+    
+    // Get player data
+    const players = marketData.players || [];
+    const maxScore = Math.max(...players.map(p => p.score));
+    const winners = players.filter(p => p.score === maxScore);
+    
+    // Modal content
+    modal.innerHTML = `
+        <style>
+            @keyframes fadeIn {
+                from { opacity: 0; }
+                to { opacity: 1; }
+            }
+            @keyframes fadeInOnly {
+                from { opacity: 0; }
+                to { opacity: 1; }
+            }
+            @keyframes countUp {
+                from { transform: scale(1); }
+                50% { transform: scale(1.2); }
+                to { transform: scale(1); }
+            }
+            @keyframes shimmer {
+                0%, 100% { filter: brightness(1); }
+                50% { filter: brightness(1.3); }
+            }
+            .score-line {
+                opacity: 0;
+                animation: fadeInOnly 0.5s ease-out forwards;
+            }
+            .score-number {
+                animation: countUp 0.3s ease-out;
+            }
+            .winner-badge {
+                animation: shimmer 2s ease-in-out infinite;
+            }
+        </style>
+        <div class="parchment-bg papyrus-texture merchant-border rounded-xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto p-6 sm:p-8" style="animation: fadeIn 0.4s ease-out;">
+            <h2 class="text-3xl sm:text-4xl font-bold text-center mb-8 ancient-title text-amber-900">
+                <i class="fa-solid fa-trophy coin-icon mr-2"></i>Market Closes
+            </h2>
+            
+            <div id="scoreReveal" class="space-y-6">
+                <!-- Scores will be animated in here -->
+            </div>
+            
+            <div class="mt-8 text-center">
+                <button onclick="closeEndGameModal()" class="action-btn px-6 py-3 rounded-lg font-bold text-sm text-amber-100 hover:text-white cursor-pointer">
+                    <i class="fa-solid fa-check mr-2"></i>CLOSE
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // Animate score reveal
+    setTimeout(() => animateScoreReveal(players), 500);
+}
+
+function animateScoreReveal(players) {
+    const container = document.getElementById('scoreReveal');
+    if (!container) return;
+    
+    // Create two-column layout
+    container.className = 'grid grid-cols-1 sm:grid-cols-2 gap-4';
+    
+    // Determine which bonus types should be shown
+    const anyPlayerHasCamel = players.some(p => p.camelBonus > 0);
+    const anyPlayerHas3x = players.some(p => (p.bonusCounts?.THREE || 0) > 0);
+    const anyPlayerHas4x = players.some(p => (p.bonusCounts?.FOUR || 0) > 0);
+    const anyPlayerHas5x = players.some(p => (p.bonusCounts?.FIVE || 0) > 0);
+    
+    // Create player sections side by side with ALL content pre-rendered
+    const playerSections = players.map((player, index) => {
+        const section = document.createElement('div');
+        section.className = 'rounded-lg p-4';
+        section.style.cssText = 'background: linear-gradient(to bottom, #f5e6d3 0%, #e8d5b7 100%); border: 3px solid #8b4513; box-shadow: inset 0 2px 4px rgba(139, 69, 19, 0.1), 0 2px 8px rgba(0,0,0,0.3);';
+        
+        const nameEl = document.createElement('h3');
+        nameEl.className = 'text-lg sm:text-xl font-bold mb-3 text-center ancient-title';
+        nameEl.style.color = '#654321';
+        nameEl.textContent = player.name + (player.name === playerName ? ' (You)' : '');
+        section.appendChild(nameEl);
+        
+        const scoreLines = document.createElement('div');
+        scoreLines.className = 'space-y-2 text-sm sm:text-base';
+        scoreLines.dataset.playerIndex = index;
+        
+        // Pre-render all score lines (invisible)
+        const allLines = [];
+        
+        // 1. Goods Score
+        const goodsLine = createScoreLine('<i class="fa-solid fa-coins coin-icon mr-2"></i>Goods', player.rawScore || 0);
+        scoreLines.appendChild(goodsLine);
+        allLines.push(goodsLine);
+        
+        // 2. Camel Bonus (if applicable)
+        if (anyPlayerHasCamel) {
+            const camelLine = createScoreLine('<i class="fa-solid fa-horse coin-icon mr-2"></i>Camel', player.camelBonus || 0, true);
+            scoreLines.appendChild(camelLine);
+            allLines.push(camelLine);
+        }
+        
+        // 3. 3x Bonus (if applicable)
+        if (anyPlayerHas3x) {
+            const count = player.bonusCounts?.THREE || 0;
+            const score = player.bonus3x || 0;
+            const bonus3Line = createScoreLine(`<i class="fa-solid fa-3 coin-icon mr-2"></i>3x Bonus ${count > 0 ? `(×${count})` : ''}`, score, true);
+            scoreLines.appendChild(bonus3Line);
+            allLines.push(bonus3Line);
+        }
+        
+        // 4. 4x Bonus (if applicable)
+        if (anyPlayerHas4x) {
+            const count = player.bonusCounts?.FOUR || 0;
+            const score = player.bonus4x || 0;
+            const bonus4Line = createScoreLine(`<i class="fa-solid fa-4 coin-icon mr-2"></i>4x Bonus ${count > 0 ? `(×${count})` : ''}`, score, true);
+            scoreLines.appendChild(bonus4Line);
+            allLines.push(bonus4Line);
+        }
+        
+        // 5. 5x Bonus (if applicable)
+        if (anyPlayerHas5x) {
+            const count = player.bonusCounts?.FIVE || 0;
+            const score = player.bonus5x || 0;
+            const bonus5Line = createScoreLine(`<i class="fa-solid fa-5 coin-icon mr-2"></i>5x Bonus ${count > 0 ? `(×${count})` : ''}`, score, true);
+            scoreLines.appendChild(bonus5Line);
+            allLines.push(bonus5Line);
+        }
+        
+        // 6. Total Line
+        const totalLine = document.createElement('div');
+        totalLine.className = 'score-line flex justify-between items-center pt-3 font-bold text-lg sm:text-xl';
+        totalLine.style.cssText = 'border-top: 3px solid #8b4513;';
+        totalLine.innerHTML = `
+            <span class="ancient-title" style="color: #654321;">Total</span>
+            <span class="score-number coin-icon" style="font-size: 1.3em;">${player.score}</span>
+        `;
+        scoreLines.appendChild(totalLine);
+        allLines.push(totalLine);
+        
+        section.appendChild(scoreLines);
+        container.appendChild(section);
+        
+        return { section, scoreLines, player, allLines };
+    });
+    
+    // Now animate the lines fading in one by one
+    let delay = 500;
+    const delayIncrement = 800;
+    
+    // Animate each line type across all players simultaneously
+    let lineIndex = 0;
+    
+    // Helper to fade in a specific line for all players
+    const fadeInLine = (index) => {
+        playerSections.forEach(({ allLines }) => {
+            if (allLines[index]) {
+                setTimeout(() => {
+                    allLines[index].style.opacity = '1';
+                }, delay);
+            }
+        });
+        delay += delayIncrement;
+        lineIndex++;
+    };
+    
+    // Fade in goods score
+    fadeInLine(0);
+    
+    // Fade in camel (if applicable)
+    if (anyPlayerHasCamel) fadeInLine(lineIndex);
+    
+    // Fade in 3x (if applicable)
+    if (anyPlayerHas3x) fadeInLine(lineIndex);
+    
+    // Fade in 4x (if applicable)
+    if (anyPlayerHas4x) fadeInLine(lineIndex);
+    
+    // Fade in 5x (if applicable)
+    if (anyPlayerHas5x) fadeInLine(lineIndex);
+    
+    // Fade in total
+    fadeInLine(lineIndex);
+    
+    // Add winner badge after a short delay
+    delay += delayIncrement / 2;
+    setTimeout(() => {
+        const maxScore = Math.max(...players.map(p => p.score));
+        playerSections.forEach(({ section, player }) => {
+            if (player.score === maxScore) {
+                const badge = document.createElement('div');
+                badge.className = 'score-line text-center mt-4 winner-badge';
+                badge.innerHTML = '<span class="inline-block px-4 py-2 rounded-full font-bold text-base sm:text-lg ancient-title" style="background: linear-gradient(135deg, #d4af37 0%, #ffd700 50%, #d4af37 100%); color: #654321; border: 2px solid #8b4513; box-shadow: 0 4px 8px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.4);"><i class="fa-solid fa-crown mr-2"></i>WINNER!</span>';
+                section.appendChild(badge);
+                setTimeout(() => badge.style.opacity = '1', 50);
+            }
+        });
+    }, delay);
+}
+
+function createScoreLine(label, value, isBonus = false) {
+    const line = document.createElement('div');
+    line.className = 'score-line flex justify-between items-center';
+    line.innerHTML = `
+        <span class="${isBonus ? '' : 'font-semibold'}" style="color: #654321;">${label}</span>
+        <span class="score-number font-bold" style="color: ${isBonus ? '#c87533' : '#8b4513'};">${isBonus && value > 0 ? '+' : ''}${value}</span>
+    `;
+    return line;
+}
+
+
+function selectActionType(type) {
+    // Don't allow re-selecting the same action type
+    if (selectedActionType === type) {
+        return;
+    }
+    
+    selectedActionType = type;
+    selectedCards = { hand: [], market: [] };
+    render();
+    // Validate to show the rule in the instructions
+    setTimeout(() => validateAction(), 10);
+}
+
+// Helper function to create a stable index for hand cards
+function getHandCardIndex(goodType, cardNumber) {
+    // Use a stable mapping based on good type names
+    // Start at 100 to avoid collision with market card indices (0-4)
+    const goodTypeOrder = ['DIAMOND', 'GOLD', 'SILVER', 'FABRIC', 'SPICE', 'LEATHER'];
+    const typeIndex = goodTypeOrder.indexOf(goodType);
+    if (typeIndex === -1) {
+        // For CAMEL or unknown types, use 1000+
+        return 1000 + cardNumber;
+    }
+    return 100 + (typeIndex * 10) + cardNumber;
+}
+
+function toggleMarketCard(index) {
+    if (!selectedActionType || selectedActionType === 'Sell' || !gameData.myTurn) return;
+    
+    if (selectedActionType === 'Take') {
+        const cardEl = document.querySelector(`.card[data-card-index="${index}"]`);
+        const goodType = cardEl?.getAttribute('data-good-type');
+        
+        if (goodType === 'CAMEL') {
+            selectedCards.market = [];
+            // Only select camels from the market (not from hand)
+            // Market cards have lower indices (< 1000), hand camels have indices >= 1000
+            document.querySelectorAll('[data-good-type="CAMEL"]').forEach((el) => {
+                const idx = parseInt(el.getAttribute('data-card-index'));
+                // Only add if it's a market card (index < 1000)
+                if (idx < 1000) {
+                    selectedCards.market.push(idx);
+                }
+            });
+        } else {
+            selectedCards.market = [index];
+        }
+    } else {
+        const idx = selectedCards.market.indexOf(index);
+        if (idx > -1) {
+            selectedCards.market.splice(idx, 1);
+        } else {
+            selectedCards.market.push(index);
+        }
+    }
+    
+    updateCardSelection();
+    validateAction();
+}
+
+function toggleHandCard(index) {
+    if (!selectedActionType || selectedActionType === 'Take' || !gameData.myTurn) return;
+    
+    const idx = selectedCards.hand.indexOf(index);
+    if (idx > -1) {
+        selectedCards.hand.splice(idx, 1);
+    } else {
+        selectedCards.hand.push(index);
+    }
+    updateCardSelection();
+    validateAction();
+}
+
+function updateCardSelection() {
+    // First, remove all selections
+    document.querySelectorAll('.card').forEach((el) => {
+        el.classList.remove('selected');
+    });
+    
+    // Then add selections only to the actually selected cards
+    selectedCards.market.forEach(idx => {
+        const el = document.querySelector(`.card[data-card-index="${idx}"]`);
+        if (el && el.hasAttribute('data-good-type')) {
+            el.classList.add('selected');
+        }
+    });
+    
+    selectedCards.hand.forEach(idx => {
+        const el = document.querySelector(`.card[data-card-index="${idx}"]`);
+        if (el && el.hasAttribute('data-good-type')) {
+            el.classList.add('selected');
+        }
+    });
+}
+
+function updateActionButtons() {
+    if (!gameData || !gameData.myTurn) return;
+    
+    ['Take', 'Sell', 'Trade'].forEach(type => {
+        const btn = document.getElementById(`btn${type}`);
+        if (btn) {
+            if (selectedActionType === type) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        }
+    });
+    
+    // Validate and update confirm button state
+    validateAction();
+}
+
+function validateAction() {
+    const confirmBtn = document.getElementById('btnConfirm');
+    const instructionsEl = document.getElementById('actionInstructions');
+    
+    if (!confirmBtn) return false;
+    
+    if (!selectedActionType) {
+        confirmBtn.disabled = true;
+        return false;
+    }
+
+    let isValid = false;
+
+    if (selectedActionType === 'Take') {
+        if (selectedCards.market.length > 0) {
+            const marketCards = getSelectedMarketCards();
+            const uniqueTypes = [...new Set(marketCards)];
+            isValid = uniqueTypes.length === 1;
+            
+            if (!isValid && instructionsEl) {
+                instructionsEl.textContent = 'Can only take one type of card!';
+            } else if (instructionsEl) {
+                instructionsEl.textContent = 'TAKE: Select all cards of ONE type from market';
+            }
+        } else if (instructionsEl) {
+            instructionsEl.textContent = 'TAKE: Select all cards of ONE type from market';
+        }
+    } else if (selectedActionType === 'Sell') {
+        if (selectedCards.hand.length > 0) {
+            const handCards = getSelectedHandCards();
+            const uniqueTypes = [...new Set(handCards)];
+            
+            // Check if trying to sell camels - NOT ALLOWED
+            if (uniqueTypes.includes('CAMEL')) {
+                isValid = false;
+                if (instructionsEl) instructionsEl.textContent = 'Cannot sell camels! Select other goods to sell.';
+            } else if (uniqueTypes.length !== 1) {
+                isValid = false;
+                if (instructionsEl) instructionsEl.textContent = 'Must sell cards of the same type!';
+            } else {
+                const goodType = uniqueTypes[0];
+                const count = handCards.length;
+                
+                if ((goodType === 'DIAMOND' || goodType === 'GOLD' || goodType === 'SILVER') && count < 2) {
+                    isValid = false;
+                    if (instructionsEl) instructionsEl.textContent = `${goodType} requires selling at least 2 cards!`;
+                } else {
+                    isValid = true;
+                    if (instructionsEl) instructionsEl.textContent = 'SELL: Select cards of same type (no camels, precious goods need 2+ cards)';
+                }
+            }
+        } else if (instructionsEl) {
+            instructionsEl.textContent = 'SELL: Select cards of same type (no camels, precious goods need 2+ cards)';
+        }
+    } else if (selectedActionType === 'Trade') {
+        // Get the cards to check for camels and 7-card limit
+        const handCards = getSelectedHandCards();
+        const marketCards = getSelectedMarketCards();
+        
+        // Check if any market cards are camels - NOT ALLOWED in trade
+        const hasCamelsInMarket = marketCards.includes('CAMEL');
+        
+        if (hasCamelsInMarket) {
+            isValid = false;
+            if (instructionsEl) {
+                instructionsEl.textContent = 'Trade: Cannot trade for camels! Select non-camel goods.';
+            }
+        } else if (selectedCards.hand.length >= 2 && selectedCards.market.length >= 2 && 
+                   selectedCards.hand.length === selectedCards.market.length) {
+            
+            // Check if trying to trade cards of the same type (taking and giving same good)
+            const handTypes = new Set(handCards);
+            const marketTypes = new Set(marketCards);
+            const sameTypeExists = [...handTypes].some(type => marketTypes.has(type));
+            
+            if (sameTypeExists) {
+                isValid = false;
+                if (instructionsEl) {
+                    instructionsEl.textContent = 'Trade: Cannot take and give cards of the same type!';
+                }
+            } else {
+                // Check 7-card hand limit
+                // Calculate current non-camel hand size
+                const currentHandSize = Object.entries(gameData.goods || {})
+                    .filter(([type]) => type !== 'CAMEL')
+                    .reduce((sum, [, count]) => sum + count, 0);
+                
+                // Calculate change: losing handCards (non-camel only), gaining marketCards (non-camel only)
+                const handCardsNonCamel = handCards.filter(type => type !== 'CAMEL').length;
+                const marketCardsNonCamel = marketCards.filter(type => type !== 'CAMEL').length;
+                
+                const finalHandSize = currentHandSize - handCardsNonCamel + marketCardsNonCamel;
+                
+                if (finalHandSize > 7) {
+                    isValid = false;
+                    if (instructionsEl) {
+                        instructionsEl.textContent = `Trade: Would result in ${finalHandSize} cards (max 7)`;
+                    }
+                } else {
+                    isValid = true;
+                    if (instructionsEl) {
+                        instructionsEl.textContent = 'TRADE: Exchange 2+ hand cards for equal market cards (no camels, max 7 cards)';
+                    }
+                }
+            }
+        } else {
+            isValid = false;
+            if (instructionsEl) {
+                if (selectedCards.hand.length < 2 || selectedCards.market.length < 2) {
+                    instructionsEl.textContent = 'TRADE: Exchange 2+ hand cards for equal market cards (no camels, max 7 cards)';
+                } else {
+                    instructionsEl.textContent = 
+                        `Trade: Select equal cards from hand (${selectedCards.hand.length}) and market (${selectedCards.market.length})`;
+                }
+            }
+        }
+    }
+
+    confirmBtn.disabled = !isValid;
+    
+    return isValid;
+}
+
+function resetSelection() {
+    selectedActionType = null;
+    selectedCards = { hand: [], market: [] };
+    const instructionsEl = document.getElementById('actionInstructions');
+    if (instructionsEl) {
+        instructionsEl.textContent = 'Select an action type';
+    }
+    render();
+}
+
+function confirmAction() {
+    if (!validateAction()) return;
+
+    const action = buildActionFromSelection();
+    if (!action) {
+        alert('Invalid action');
+        return;
+    }
+
+    console.log('Sending action:', action);
+    
+    fetch('/api/action', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({playerId, sessionId, action})
+    }).catch(err => alert('Action failed: ' + err.message));
+
+    resetSelection();
+}
+
+function buildActionFromSelection() {
+    const handCards = getSelectedHandCards();
+    const marketCards = getSelectedMarketCards();
+
+    let action = {
+        type: selectedActionType,
+        offered: {},
+        requested: {}
+    };
+
+    if (selectedActionType === 'Take') {
+        marketCards.forEach(goodType => {
+            action.requested[goodType] = (action.requested[goodType] || 0) + 1;
+        });
+    } else if (selectedActionType === 'Sell') {
+        handCards.forEach(goodType => {
+            action.offered[goodType] = (action.offered[goodType] || 0) + 1;
+        });
+    } else if (selectedActionType === 'Trade') {
+        handCards.forEach(goodType => {
+            action.offered[goodType] = (action.offered[goodType] || 0) + 1;
+        });
+        marketCards.forEach(goodType => {
+            action.requested[goodType] = (action.requested[goodType] || 0) + 1;
+        });
+    }
+
+    return action;
+}
+
+function getSelectedHandCards() {
+    const cards = [];
+    
+    const handCardsList = [];
+    
+    // Regular goods
+    for (const [goodType, count] of Object.entries(gameData.goods || {})) {
+        if (goodType === 'CAMEL') continue;
+        for (let i = 0; i < count; i++) {
+            const idx = getHandCardIndex(goodType, i);
+            handCardsList.push({ index: idx, goodType });
+        }
+    }
+    
+    // Camels
+    const camelCount = gameData.goods?.CAMEL || 0;
+    for (let i = 0; i < camelCount; i++) {
+        const idx = getHandCardIndex('CAMEL', i);
+        handCardsList.push({ index: idx, goodType: 'CAMEL' });
+    }
+    
+    for (const idx of selectedCards.hand) {
+        const card = handCardsList.find(c => c.index === idx);
+        if (card) {
+            cards.push(card.goodType);
+        }
+    }
+    
+    return cards;
+}
+
+function getSelectedMarketCards() {
+    if (!marketData || !marketData.market) return [];
+    
+    const cards = [];
+    let cardIndex = 0;
+    for (const [goodType, count] of Object.entries(marketData.market)) {
+        for (let i = 0; i < count; i++) {
+            if (selectedCards.market.includes(cardIndex)) {
+                cards.push(goodType);
+            }
+            cardIndex++;
+        }
+    }
+    return cards;
+}
+
+render();
+connect();
+</script>
+</body>
+</html>

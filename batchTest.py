@@ -1,8 +1,13 @@
+import sys
+import os
 import time
 import multiprocessing
 import random
 from collections import defaultdict
 from typing import Dict
+
+# Add cloned bazaar-ai/src to path (uses local source, not pip)
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'bazaar-ai', 'src'))
 
 # ============================================================
 # CONFIGURATION - CHANGE THESE TO TEST DIFFERENT AGENTS
@@ -14,8 +19,8 @@ from typing import Dict
 # from agents.apex_agent import ApexAgent as Agent2
 # from agents.shark_agent2 import SharkAgent2 as Agent1
 # from agents.shark_agent5 import SharkAgent5 as Agent1
-from agents.shark_agent7 import SharkAgent7 as Agent2
-from agents.shark_agent6 import SharkAgent6 as Agent1
+from agents.shark_agent6 import SharkAgent6 as Agent2
+from agents.random_agent import RandomAgent as Agent1
 
 NUM_GAMES = 1000    # How many games to play total
 SEED_START = 233423       # Starting random seed (change for different matchups)

@@ -1,0 +1,7 @@
+# Include static files in the package distribution
+recursive-include src/bazaar-ai/simulator/static *
+include README.md
+include LICENSE.txt
+include QUICKSTART.md
+include agents/README.md
+include agents/.gitkeep

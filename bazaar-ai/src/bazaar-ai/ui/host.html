@@ -1,0 +1,1348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bazaar - Host</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"/>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&family=Philosopher:wght@400;700&display=swap');
+        
+        body {
+            font-family: 'Philosopher', sans-serif;
+        }
+        
+        body::-webkit-scrollbar {
+            display: none;
+        }
+
+        button {
+            user-select: none;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+        }
+        
+        .ancient-title {
+            font-family: 'Cinzel', serif;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .parchment-bg {
+            background: #f0dfc8;
+            box-shadow: 
+                inset 0 0 50px rgba(139, 69, 19, 0.1),
+                0 8px 32px rgba(0, 0, 0, 0.4);
+        }
+        
+        .merchant-border {
+            border: 4px solid #8b4513;
+        }
+        
+        .coin-icon {
+            color: #d4af37;
+            filter: drop-shadow(0 2px 3px rgba(0,0,0,0.4));
+            -webkit-text-stroke: 1px #654321;
+            text-shadow: 
+                1px 1px 0 #654321,
+                -1px -1px 0 #654321,
+                1px -1px 0 #654321,
+                -1px 1px 0 #654321;
+        }
+        
+        .action-btn {
+            font-family: 'Cinzel', serif;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            background: transparent;
+            border: 2px solid #8b4513;
+            color: #8b4513;
+            box-shadow: none;
+            transition: all 0.2s;
+        }
+        
+        .action-btn:hover:not(:disabled) {
+            background: #8b4513;
+            color: #fef3c7;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        
+        .action-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        
+        .mode-btn {
+            transition: all 0.2s ease;
+            min-width: 140px;
+        }
+        
+        .mode-btn:hover {
+            background: #8b4513;
+            color: #fef3c7;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(139, 69, 19, 0.4);
+        }
+        
+        .mode-btn-selected {
+            background: #8b4513;
+            color: #fef3c7;
+            box-shadow: 0 2px 8px rgba(139, 69, 19, 0.5);
+        }
+        
+        .mode-btn-selected:hover {
+            transform: none;
+        }
+        
+        .status-pill {
+            font-family: 'Cinzel', serif;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            background: #8b4513;
+            border: 2px solid #d4af37;
+            color: #fef3c7;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .player-pill {
+            font-family: 'Cinzel', serif;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            background: transparent;
+            border: 2px solid #8b4513;
+            color: #8b4513;
+            box-shadow: none;
+        }
+        
+        .scroll-bg {
+            background: #e8d5b7;
+            border: 3px solid #8b4513;
+            box-shadow: inset 0 2px 4px rgba(139, 69, 19, 0.1), 0 2px 8px rgba(0,0,0,0.3);
+        }
+    </style>
+</head>
+<body class="min-h-screen p-6 pb-24" style="background: #e8d5b7;">
+
+<div id="app" class="max-w-7xl mx-auto">
+    <div id="connection-status" class="flex items-center justify-center h-screen">
+        <div class="parchment-bg papyrus-texture merchant-border rounded-xl p-8 max-w-md text-center">
+            <h2 class="text-2xl font-bold mb-4 ancient-title" style="color: #654321;">Bazaar</h2>
+            <div class="animate-pulse mb-4">
+                <div class="h-2 rounded mb-2" style="background: #a0522d;"></div>
+                <div class="h-2 rounded w-3/4 mx-auto" style="background: #a0522d;"></div>
+            </div>
+            <p class="mb-4" style="color: #654321;">Connecting to game server...</p>
+            <p class="text-sm" style="color: #8b4513;">Make sure the Python backend is running on http://YOUR_IP:5000</p>
+        </div>
+    </div>
+</div>
+
+<script src="/shared.js"></script>
+<script>
+
+let gameState = null;
+let gameMode = 'human-vs-human'; // Default to human vs human
+let connectedPlayers = []; // List of connected human players with their names
+let selectedPlayer1 = null;
+let selectedPlayer2 = null;
+let botPlayers = []; // Will be loaded from API
+let availableAgents = []; // Raw agent data from API
+
+async function loadAvailableAgents() {
+    try {
+        const response = await fetch('/api/agents');
+        if (response.ok) {
+            const data = await response.json();
+            availableAgents = data.agents || [];
+            botPlayers = availableAgents.map(a => ({ id: a.id, name: a.name }));
+            console.log('Loaded agents:', botPlayers);
+        }
+    } catch (error) {
+        console.error('Failed to load agents:', error);
+        botPlayers = [];
+    }
+}
+
+function connectWebSocket() {
+    console.log('Starting REST API polling...');
+    
+    // Load available agents first
+    loadAvailableAgents();
+    
+    // Hide the connection screen immediately
+    const connectionStatus = document.getElementById('connection-status');
+    if (connectionStatus) {
+        connectionStatus.style.display = 'none';
+    }
+    
+    // Poll for game state every 500ms
+    let lastStateString = '';
+    setInterval(async () => {
+        try {
+            const response = await fetch('/api/state');
+            if (response.ok) {
+                const newState = await response.json();
+                const newStateString = JSON.stringify(newState);
+                
+                // Only re-render if state actually changed
+                if (newStateString !== lastStateString) {
+                    gameState = newState;
+                    lastStateString = newStateString;
+                    
+                    // Update connected players list
+                    updateConnectedPlayersList(newState);
+                    
+                    renderGame();
+                }
+            }
+        } catch (error) {
+            console.error('Poll error:', error);
+        }
+    }, 500);
+    
+    // Initial render
+    renderGame();
+}
+
+function updateConnectedPlayersList(state) {
+    // Track connected human players
+    const newPlayers = [];
+    
+    if (state.player1Connected) {
+        // Check if this player is already in our list
+        if (!connectedPlayers.find(p => p.id === 'player1')) {
+            newPlayers.push({ id: 'player1', name: 'Player 1' });
+        }
+    }
+    
+    if (state.player2Connected) {
+        // Check if this player is already in our list
+        if (!connectedPlayers.find(p => p.id === 'player2')) {
+            newPlayers.push({ id: 'player2', name: 'Player 2' });
+        }
+    }
+    
+    // Add new players to list
+    connectedPlayers.push(...newPlayers);
+    
+    // Remove disconnected players
+    connectedPlayers = connectedPlayers.filter(p => {
+        if (p.id === 'player1') return state.player1Connected;
+        if (p.id === 'player2') return state.player2Connected;
+        return true;
+    });
+}
+
+function sendCommand(command, data = {}) {
+    if (command === 'start') {
+        // Determine game mode and send appropriate data
+        let requestData = {};
+        
+        if (gameMode === 'bot-vs-bot') {
+            requestData = {
+                mode: 'bot',
+                agent1: selectedPlayer1,
+                agent2: selectedPlayer2
+            };
+        } else if (gameMode === 'human-vs-bot') {
+            requestData = {
+                mode: 'human-vs-bot',
+                agent2: selectedPlayer2
+            };
+        } else {
+            requestData = {
+                mode: 'human'
+            };
+        }
+        
+        fetch('/api/start', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(requestData)
+        }).catch(err => console.error('Start error:', err));
+    } else if (command === 'reset') {
+        // Reset end game flags
+        endGameShown = false;
+        showingEndGameTransition = false;
+        
+        fetch('/api/reset', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'}
+        }).catch(err => console.error('Reset error:', err));
+    }
+}
+
+function pauseBot() {
+    fetch('/api/bot/pause', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    }).catch(err => console.error('Pause error:', err));
+}
+
+function resumeBot() {
+    fetch('/api/bot/resume', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    }).catch(err => console.error('Resume error:', err));
+}
+
+function stepBot() {
+    fetch('/api/bot/step', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    }).catch(err => console.error('Step error:', err));
+}
+
+function setBotSpeed(speed) {
+    fetch('/api/bot/speed', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ speed: parseFloat(speed) })
+    }).catch(err => console.error('Speed error:', err));
+}
+
+function setBotTimeout(timeout) {
+    fetch('/api/bot/timeout', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ timeout: parseFloat(timeout) })
+    }).catch(err => console.error('Timeout error:', err));
+}
+
+function copyPlayerUrl() {
+    const input = document.getElementById('playerUrlInput');
+    if (input) {
+        input.select();
+        input.setSelectionRange(0, 99999); // For mobile devices
+        
+        // Try the modern clipboard API first, fall back to execCommand
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(input.value).then(() => {
+                showCopySuccess();
+            }).catch(err => {
+                console.error('Clipboard API failed, trying execCommand:', err);
+                fallbackCopy(input);
+            });
+        } else {
+            fallbackCopy(input);
+        }
+    }
+}
+
+function fallbackCopy(input) {
+    try {
+        document.execCommand('copy');
+        showCopySuccess();
+    } catch (err) {
+        console.error('Failed to copy:', err);
+        alert('Failed to copy URL. Please copy manually.');
+    }
+}
+
+function showCopySuccess() {
+    const button = document.querySelector('#playerUrlInput + button');
+    if (button) {
+        const originalHTML = button.innerHTML;
+        button.innerHTML = '<i class="fa-solid fa-check"></i>';
+        button.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+        button.classList.add('bg-green-600');
+        setTimeout(() => {
+            button.innerHTML = originalHTML;
+            button.classList.remove('bg-green-600');
+            button.classList.add('bg-blue-600', 'hover:bg-blue-700');
+        }, 2000);
+    }
+}
+
+function createCard(goodType, size = 'lg') {
+    const style = cardStyles[goodType] || cardStyles.LEATHER;
+    const sizeClass = size === 'sm' ? 'w-14 h-20 text-xs' : 'w-20 h-28 text-sm';
+    
+    return `
+        <div class="${style.bg} ${style.border} border-2 rounded-lg ${sizeClass} flex items-center justify-center font-bold text-white shadow-lg">
+            <div>${style.text}</div>
+        </div>
+    `;
+}
+
+function getActionDescriptionHTML(action) {
+    if (!action) return '';
+    
+    const makeGoodSpan = (type) => {
+        const style = cardStyles[type];
+        return `<span class="font-semibold" style="color: ${style?.borderColor}">${style?.text || type}</span>`;
+    };
+    
+    if (action.type === 'Sell') {
+        const goods = Object.entries(action.offered || {}).map(([type, count]) => `${count} ${makeGoodSpan(type)}`).join(', ');
+        return `<span class="italic">sold ${goods}</span>`;
+    } else if (action.type === 'Take') {
+        const goods = Object.entries(action.requested || {}).map(([type, count]) => `${count} ${makeGoodSpan(type)}`).join(', ');
+        return `<span class="italic">took ${goods}</span>`;
+    } else if (action.type === 'Trade') {
+        const offered = Object.entries(action.offered || {})
+            .map(([type, count]) => `${count} ${makeGoodSpan(type)}`)
+            .join(', ');
+        const requested = Object.entries(action.requested || {})
+            .map(([type, count]) => `${count} ${makeGoodSpan(type)}`)
+            .join(', ');
+        return `<span class="italic">traded (${offered}) for (${requested})</span>`;
+    }
+    return 'Unknown action';
+}
+
+function renderModeSelection() {
+    const isHumanVsHuman = gameMode === 'human-vs-human';
+    const isHumanVsBot = gameMode === 'human-vs-bot';
+    const isBotVsBot = gameMode === 'bot-vs-bot';
+    
+    return `
+        <div class="flex gap-3 justify-center mb-8">
+            <button onclick="selectGameMode('human-vs-human')" 
+                    class="mode-btn flex-1 action-btn px-6 py-4 rounded-lg font-bold text-sm cursor-pointer ${isHumanVsHuman ? 'mode-btn-selected' : ''}">
+                <div><i class="fa-solid fa-users text-xl mb-2"></i></div>
+                <div>Human vs Human</div>
+            </button>
+            
+            <button onclick="selectGameMode('human-vs-bot')" 
+                    class="mode-btn flex-1 action-btn px-6 py-4 rounded-lg font-bold text-sm cursor-pointer ${isHumanVsBot ? 'mode-btn-selected' : ''}">
+                <div><i class="fa-solid fa-user text-xl mb-2"></i><i class="fa-solid fa-robot text-xl mb-2 ml-2"></i></div>
+                <div>Human vs Bot</div>
+            </button>
+            
+            <button onclick="selectGameMode('bot-vs-bot')" 
+                    class="mode-btn flex-1 action-btn px-6 py-4 rounded-lg font-bold text-sm cursor-pointer ${isBotVsBot ? 'mode-btn-selected' : ''}">
+                <div><i class="fa-solid fa-robot text-xl mb-2"></i></div>
+                <div>Bot vs Bot</div>
+            </button>
+        </div>
+    `;
+}
+
+function renderSetupScreen() {
+    const needsQRCode = gameMode === 'human-vs-human' || gameMode === 'human-vs-bot';
+    const playerUrl = `${window.location.protocol}//${window.location.host}/player.html`;
+    
+    // Helper function to generate options with selected state
+    const generateOptions = (players, selectedValue) => {
+        return players.map(p => {
+            const value = p.id || p;
+            const name = p.name || p;
+            const selected = value === selectedValue ? ' selected' : '';
+            return `<option value="${value}"${selected}>${name}</option>`;
+        }).join('');
+    };
+    
+    // Build connected players list
+    const humanPlayers = connectedPlayers.length > 0 
+        ? connectedPlayers
+        : [{ id: '', name: 'No players connected' }];
+    
+    const botPlayersList = botPlayers.map(b => ({ id: b.id || b, name: b.name || b }));
+    
+    let player1OptionsHTML = '';
+    let player2OptionsHTML = '';
+    
+    if (gameMode === 'human-vs-human') {
+        player1OptionsHTML = generateOptions(humanPlayers, selectedPlayer1);
+        player2OptionsHTML = generateOptions(humanPlayers, selectedPlayer2);
+    } else if (gameMode === 'human-vs-bot') {
+        player1OptionsHTML = generateOptions(humanPlayers, selectedPlayer1);
+        player2OptionsHTML = generateOptions(botPlayersList, selectedPlayer2);
+    } else if (gameMode === 'bot-vs-bot') {
+        player1OptionsHTML = generateOptions(botPlayersList, selectedPlayer1);
+        player2OptionsHTML = generateOptions(botPlayersList, selectedPlayer2);
+    }
+    
+    const playerSetupSection = gameMode ? `
+        <div class="flex items-center gap-4 justify-center mb-8">
+            <div class="flex-1 max-w-xs">
+                <select id="player1Select" class="w-full px-4 py-3 rounded-lg border-2 text-center ancient-title font-semibold" style="border-color: #8b4513; background: #e8d5b7; color: #654321;" onchange="updatePlayerSelection()">
+                    <option value="">Select...</option>
+                    ${player1OptionsHTML}
+                </select>
+            </div>
+            
+            <div class="text-2xl font-bold ancient-title self-center" style="color: #654321; margin-top: 4px;">VS</div>
+            
+            <div class="flex-1 max-w-xs">
+                <select id="player2Select" class="w-full px-4 py-3 rounded-lg border-2 text-center ancient-title font-semibold" style="border-color: #8b4513; background: #e8d5b7; color: #654321;" onchange="updatePlayerSelection()">
+                    <option value="">Select...</option>
+                    ${player2OptionsHTML}
+                </select>
+            </div>
+        </div>
+    ` : '';
+    
+    const qrCodeSection = (gameMode && needsQRCode) ? `
+        <div class="mb-8">
+            <p class="text-center font-semibold mb-4" style="color: #654321;">
+                Scan the QR code or visit the URL below:
+            </p>
+            
+            <div class="flex justify-center mb-3">
+                <div id="qrcode" style="background: white; padding: 16px; border-radius: 8px; border: 3px solid #8b4513;"></div>
+            </div>
+            
+            <p class="text-center font-mono text-sm mb-3" style="color: #8b4513;">
+                ${playerUrl}
+            </p>
+            
+            <p class="text-center text-sm" style="color: #654321;">
+                <i class="fa-solid fa-wifi mr-1"></i>Make sure all devices are on the same WiFi network
+            </p>
+        </div>
+    ` : '';
+    
+    const canStart = gameMode && ((gameMode === 'bot-vs-bot') 
+        ? (selectedPlayer1 && selectedPlayer2)
+        : (gameMode === 'human-vs-bot') 
+            ? (gameState && gameState.player1Connected && selectedPlayer2)
+            : (gameState && gameState.playersReady));
+    
+    const startButton = gameMode ? (canStart
+        ? `<button onclick="sendCommand('start')" class="action-btn px-6 py-3 rounded-lg font-bold text-sm cursor-pointer">
+            <i class="fa-solid fa-play mr-2"></i>START GAME
+           </button>`
+        : `<button disabled class="action-btn px-6 py-3 rounded-lg font-bold text-sm cursor-not-allowed">
+            <i class="fa-solid fa-play mr-2"></i>START GAME
+           </button>`) : '';
+    
+    return `
+<div class="max-w-4xl mx-auto pb-24 pt-6">
+    <h1 class="text-4xl font-bold text-center ancient-title mb-8" style="color: #654321;">
+        Bazaar
+    </h1>
+    
+    ${renderModeSelection()}
+    
+    ${playerSetupSection}
+    ${qrCodeSection}
+    
+    <div class="text-center">
+        ${startButton}
+    </div>
+</div>
+    `;
+}
+
+function selectGameMode(mode) {
+    gameMode = mode;
+    
+    // Notify backend of the selected mode
+    fetch('/api/set_mode', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ mode: mode })
+    }).catch(err => console.error('Set mode error:', err));
+    
+    renderGame();
+}
+
+function updatePlayerSelection() {
+    const player1Select = document.getElementById('player1Select');
+    const player2Select = document.getElementById('player2Select');
+    
+    if (player1Select) {
+        selectedPlayer1 = player1Select.value;
+    }
+    if (player2Select) {
+        selectedPlayer2 = player2Select.value;
+    }
+    
+    // Only update the start button instead of re-rendering everything
+    updateStartButton();
+}
+
+function updateStartButton() {
+    const canStart = gameMode && ((gameMode === 'bot-vs-bot') 
+        ? (selectedPlayer1 && selectedPlayer2)
+        : (gameMode === 'human-vs-bot') 
+            ? (gameState && gameState.player1Connected && selectedPlayer2)
+            : (gameState && gameState.playersReady));
+    
+    const startButtonContainer = document.querySelector('.text-center button, .text-center button[disabled]')?.parentElement;
+    if (startButtonContainer) {
+        startButtonContainer.innerHTML = canStart
+            ? `<button onclick="sendCommand('start')" class="action-btn px-6 py-3 rounded-lg font-bold text-sm cursor-pointer">
+                <i class="fa-solid fa-play mr-2"></i>START GAME
+               </button>`
+            : `<button disabled class="action-btn px-6 py-3 rounded-lg font-bold text-sm cursor-not-allowed">
+                <i class="fa-solid fa-play mr-2"></i>START GAME
+               </button>`;
+    }
+}
+
+function resetMode() {
+    gameMode = null;
+    selectedPlayer1 = null;
+    selectedPlayer2 = null;
+    
+    // Clear the pending mode on backend
+    fetch('/api/set_mode', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ mode: null })
+    }).catch(err => console.error('Clear mode error:', err));
+    
+    renderGame();
+}
+
+function renderGame() {
+    const app = document.getElementById('app');
+    
+    // Don't render if we're showing the end game transition or scores
+    if (showingEndGameTransition) {
+        return;
+    }
+    
+    // Always show mode selection at top, then player setup below if mode is selected
+    if (!gameState || !gameState.gameStarted) {
+        app.innerHTML = renderSetupScreen();
+        
+        // Generate QR code after rendering (if needed)
+        setTimeout(() => {
+            const qrElement = document.getElementById('qrcode');
+            if (qrElement && qrElement.children.length === 0) {
+                const playerUrl = `${window.location.protocol}//${window.location.host}/player.html`;
+                new QRCode(qrElement, {
+                    text: playerUrl,
+                    width: 200,
+                    height: 200,
+                    colorDark: "#654321",
+                    colorLight: "#ffffff"
+                });
+            }
+        }, 100);
+        return;
+    }
+    
+    // Regular game display
+    const marketCards = Object.entries(gameState.market || {})
+        .flatMap(([goodType, count]) => 
+            Array(count).fill(goodType).map(type => createCard(type))
+        )
+        .join('');
+
+    const currentMarketSize = Object.values(gameState.market || {}).reduce((sum, count) => sum + count, 0);
+    const maxMarketSize = 5;
+    const emptySlots = Math.max(0, maxMarketSize - currentMarketSize);
+    const placeholderCards = '<div class="w-20 h-28 border-2 border-dashed rounded-lg" style="border-color: #a0522d; background: #f5e6d3;"></div>'.repeat(emptySlots);
+
+    const players = gameState.players.map((player, idx) => {
+        const isActive = player.name === gameState.currentPlayer;
+        const isBotMode = gameState.gameMode === 'bot';
+        const isConnected = isBotMode || ((idx === 0 && gameState.player1Connected) || (idx === 1 && gameState.player2Connected));
+        
+        let statusPill = '';
+        if (gameState.isTerminal) {
+            // Check if game ended due to timeout
+            if (gameState.botTimeoutPlayer) {
+                // Only show winner badge for the player who didn't timeout
+                if (player.name !== gameState.botTimeoutPlayer) {
+                    statusPill = '<span class="status-pill px-3 py-1 rounded text-xs font-bold ancient-title" style="background: #d4af37; color: #654321;">WINNER</span>';
+                }
+            } else {
+                // Normal game ending - determine winner by score
+                const scores = gameState.players.map(p => p.score);
+                const maxScore = Math.max(...scores);
+                const winners = gameState.players.filter(p => p.score === maxScore);
+                
+                if (winners.length > 1) {
+                    statusPill = '<span class="status-pill px-3 py-1 rounded text-xs font-bold">TIE</span>';
+                } else if (player.score === maxScore) {
+                    statusPill = '<span class="status-pill px-3 py-1 rounded text-xs font-bold ancient-title" style="background: #d4af37; color: #654321;">WINNER</span>';
+                }
+            }
+        } else if (gameState.gameStarted) {
+            if (!isConnected) {
+                statusPill = '<span class="px-3 py-1.5 rounded text-sm" style="background: transparent; border: 1px solid #d4a574; color: #d4a574;">Disconnected</span>';
+            } else if (isActive) {
+                // Show different indicator if paused
+                if (isBotMode && gameState.botPaused) {
+                    statusPill = '<span class="px-3 py-1.5 rounded text-sm" style="background: transparent; border: 2px solid #d97706; color: #d97706; font-weight: 600;">Turn (Paused)</span>';
+                } else {
+                    statusPill = '<span class="px-3 py-1.5 rounded text-sm animate-pulse" style="background: transparent; border: 2px solid #8b4513; color: #8b4513; font-weight: 600;">Playing</span>';
+                }
+            } else {
+                statusPill = '<span class="px-3 py-1.5 rounded text-sm" style="background: transparent; border: 1px solid #a89078; color: #a89078;">Waiting</span>';
+            }
+        } else {
+            // Before game starts
+            if (!isConnected) {
+                statusPill = '<span class="px-3 py-1.5 rounded text-sm" style="background: transparent; border: 1px solid #d4a574; color: #d4a574;">Disconnected</span>';
+            } else {
+                // Show loading coin for connected players before game starts
+                statusPill = `<span class="flex items-center gap-2 px-3 py-1.5 rounded text-sm" style="background: transparent; border: 1px solid #8b4513; color: #8b4513;">
+                    <svg class="coin-flip w-4 h-4" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style="display: inline-block;">
+                        <circle cx="50" cy="50" r="45" fill="none" stroke="#8b4513" stroke-width="8"/>
+                        <circle cx="50" cy="50" r="35" fill="none" stroke="#8b4513" stroke-width="4"/>
+                        <circle cx="50" cy="50" r="25" fill="none" stroke="#8b4513" stroke-width="4"/>
+                        <circle cx="50" cy="50" r="6" fill="#8b4513"/>
+                        <circle cx="35" cy="50" r="3" fill="#8b4513"/>
+                        <circle cx="65" cy="50" r="3" fill="#8b4513"/>
+                        <circle cx="50" cy="35" r="3" fill="#8b4513"/>
+                        <circle cx="50" cy="65" r="3" fill="#8b4513"/>
+                    </svg>
+                    <span>Ready</span>
+                </span>`;
+            }
+        }
+
+        // Player's hand (excluding camels)
+        const currentHandSize = Object.entries(player.goods || {})
+            .filter(([type]) => type !== 'CAMEL')
+            .reduce((sum, [, count]) => sum + count, 0);
+        
+        const maxHandSize = 7;
+        // Enforce 7-card limit
+        const displayHandSize = Math.min(currentHandSize, maxHandSize);
+        const emptyHandSlots = Math.max(0, maxHandSize - displayHandSize);
+        
+        let cardsRendered = 0;
+        const handCards = Object.entries(player.goods || {})
+            .filter(([type]) => type !== 'CAMEL')
+            .flatMap(([goodType, count]) => {
+                const cardsToShow = Math.min(count, maxHandSize - cardsRendered);
+                cardsRendered += cardsToShow;
+                return Array(cardsToShow).fill(goodType).map(type => createCard(type, 'sm'));
+            })
+            .join('');
+        
+        const placeholderHandCards = '<div class="w-14 h-20 border-2 border-dashed rounded-lg" style="border-color: #a0522d; background: #f5e6d3;"></div>'.repeat(emptyHandSlots);
+
+        return `
+            <div class="p-4">
+                <div class="text-center mb-4">
+                    <h3 class="text-xl font-bold ancient-title mb-2" style="color: #654321;">${player.name}</h3>
+                    ${statusPill ? `<div>${statusPill}</div>` : ''}
+                </div>
+                <div class="flex items-center justify-center gap-4 mb-4">
+                    <div class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg" style="background: #8b4513; border: 2px solid #d4af37; min-width: 80px; height: 40px;">
+                        <span class="coin-icon" style="font-size: 18px;"><i class="fa-solid fa-coins"></i></span>
+                        <span class="font-bold text-lg" style="color: #fef3c7;">${player.score}</span>
+                    </div>
+                    <div class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg" style="background: #e8d5b7; border: 2px solid #a0522d; min-width: 80px; height: 40px;">
+                        <span class="coin-icon" style="font-size: 18px;"><i class="fa-solid fa-3"></i></span>
+                        <span class="font-bold" style="color: #654321;">${player.bonusCounts?.THREE ?? 0}</span>
+                    </div>
+                    <div class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg" style="background: #e8d5b7; border: 2px solid #a0522d; min-width: 80px; height: 40px;">
+                        <span class="coin-icon" style="font-size: 18px;"><i class="fa-solid fa-4"></i></span>
+                        <span class="font-bold" style="color: #654321;">${player.bonusCounts?.FOUR ?? 0}</span>
+                    </div>
+                    <div class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg" style="background: #e8d5b7; border: 2px solid #a0522d; min-width: 80px; height: 40px;">
+                        <span class="coin-icon" style="font-size: 18px;"><i class="fa-solid fa-5"></i></span>
+                        <span class="font-bold" style="color: #654321;">${player.bonusCounts?.FIVE ?? 0}</span>
+                    </div>
+                    <div class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg" style="background: #E19A4F; border: 2px solid #A86A2F; min-width: 80px; height: 40px;">
+                        <span class="coin-icon" style="font-size: 18px;"><i class="fa-solid fa-horse"></i></span>
+                        <span class="font-bold" style="color: #8b4513;">${player.camelCount || 0}</span>
+                    </div>
+                </div>
+                <div>
+                    <div class="flex gap-2 flex-wrap justify-center">${handCards}${placeholderHandCards}</div>
+                </div>
+            </div>
+        `;
+    }).map((html, idx) => `<div>${html}</div>`);
+
+    const marketCoinsDisplay = Object.keys(cardStyles)
+        .filter(goodType => goodType !== 'CAMEL')
+        .map(goodType => {
+            const coins = gameState.marketCoins?.[goodType] || [];
+            const style = cardStyles[goodType];
+            
+            // Show exactly 9 slots for each coin type
+            const maxCoins = 9;
+            let coinsHTML = '';
+            
+            for (let i = 0; i < maxCoins; i++) {
+                if (i < coins.length) {
+                    // Show actual coin
+                    coinsHTML += `
+                        <div class="${style.bg} ${style.border} border-2 text-white rounded-full w-8 h-8 flex items-center justify-center text-sm font-bold shadow-md">
+                            ${coins[i]}
+                        </div>
+                    `;
+                } else {
+                    // Show empty placeholder
+                    coinsHTML += `
+                        <div class="border-2 border-dashed rounded-full w-8 h-8" style="border-color: #a0522d; background: #f5e6d3;"></div>
+                    `;
+                }
+            }
+            
+            return `
+            <div class="flex gap-2 flex-wrap items-center justify-center min-h-[36px]">
+                ${coinsHTML}
+            </div>
+            `;
+        }).join('');
+    
+    const bonusTokensDisplay = `
+        <div class="flex gap-2 flex-wrap items-center justify-center min-h-[36px]">
+            ${Array(9).fill(0).map((_, i) => {
+                if (i < (gameState.marketBonusTokens?.THREE ?? 0)) {
+                    return `
+                        <div class="border-2 rounded-full w-8 h-8 flex items-center justify-center shadow-md overflow-hidden" style="background: #8b4513; border-color: #d4af37;">
+                            <img src="${dots3SVG}" alt="3" class="w-6 h-6" />
+                        </div>
+                    `;
+                } else {
+                    return `<div class="border-2 border-dashed rounded-full w-8 h-8" style="border-color: #a0522d; background: #f5e6d3;"></div>`;
+                }
+            }).join('')}
+        </div>
+        <div class="flex gap-2 flex-wrap items-center justify-center min-h-[36px]">
+            ${Array(9).fill(0).map((_, i) => {
+                if (i < (gameState.marketBonusTokens?.FOUR ?? 0)) {
+                    return `
+                        <div class="border-2 rounded-full w-8 h-8 flex items-center justify-center shadow-md overflow-hidden" style="background: #8b4513; border-color: #d4af37;">
+                            <img src="${dots4SVG}" alt="4" class="w-6 h-6" />
+                        </div>
+                    `;
+                } else {
+                    return `<div class="border-2 border-dashed rounded-full w-8 h-8" style="border-color: #a0522d; background: #f5e6d3;"></div>`;
+                }
+            }).join('')}
+        </div>
+        <div class="flex gap-2 flex-wrap items-center justify-center min-h-[36px]">
+            ${Array(9).fill(0).map((_, i) => {
+                if (i < (gameState.marketBonusTokens?.FIVE ?? 0)) {
+                    return `
+                        <div class="border-2 rounded-full w-8 h-8 flex items-center justify-center shadow-md overflow-hidden" style="background: #8b4513; border-color: #d4af37;">
+                            <img src="${dots5SVG}" alt="5" class="w-6 h-6" />
+                        </div>
+                    `;
+                } else {
+                    return `<div class="border-2 border-dashed rounded-full w-8 h-8" style="border-color: #a0522d; background: #f5e6d3;"></div>`;
+                }
+            }).join('')}
+        </div>
+    `;
+
+    let marketStatusText = '';
+    if (!gameState.gameStarted) {
+        marketStatusText = gameState.playersReady ? 'Waiting to start' : 'Waiting for players';
+    } else if (gameState.isTerminal) {
+        if (gameState.botTimeoutPlayer) {
+            marketStatusText = `Closed | ${gameState.botTimeoutPlayer} exceeded timeout`;
+        } else if (gameState.lastAction && gameState.lastAction.player) {
+            marketStatusText = `Closed | Round ${gameState.round}: ${gameState.lastAction.player} ${getActionDescriptionHTML(gameState.lastAction)}`;
+        } else {
+            marketStatusText = 'Closed';
+        }
+    } else {
+        if (gameState.lastAction && gameState.lastAction.player) {
+            marketStatusText = `Open | Round ${gameState.round}: ${gameState.lastAction.player} ${getActionDescriptionHTML(gameState.lastAction)}`;
+        } else {
+            marketStatusText = 'Open | Market just opened';
+        }
+    }
+
+    // Player connection status
+    const player1Status = gameState.player1Connected 
+        ? '<span class="text-green-700"><i class="fa-solid fa-check-circle"></i> Player 1 Connected</span>'
+        : '<span class="text-red-700"><i class="fa-solid fa-times-circle"></i> Waiting for Player 1...</span>';
+    
+    const player2Status = gameState.player2Connected
+        ? '<span class="text-green-700"><i class="fa-solid fa-check-circle"></i> Player 2 Connected</span>'
+        : '<span class="text-red-700"><i class="fa-solid fa-times-circle"></i> Waiting for Player 2...</span>';
+
+    // Start button
+    const canStart = gameState.playersReady && !gameState.gameStarted;
+    const startButton = gameState.gameStarted 
+        ? '' 
+        : `<button onclick="sendCommand('start')" class="action-btn px-4 py-2 rounded-lg font-bold text-xs border-2 transition-colors ${canStart ? 'text-amber-100 hover:text-white cursor-pointer' : 'scroll-bg text-gray-700 opacity-50 cursor-not-allowed'}" ${!canStart ? 'disabled' : ''}>
+            <i class="fa-solid fa-play mr-1"></i>START GAME
+           </button>`;
+
+    app.innerHTML = `
+<div class="flex items-center justify-center mb-4">
+    <div class="text-center">
+        <h2 class="text-xl font-bold ancient-title mb-2" style="color: #654321;">Market</h2>
+        <div style="color: #654321;">
+            <div class="font-semibold text-lg">${gameState.gameStarted && !gameState.isTerminal ? 'Open' : 'Closed'}</div>
+            <div class="text-base">${gameState.lastAction && gameState.lastAction.player 
+                ? `Round ${gameState.round}: ${gameState.lastAction.player} ${getActionDescriptionHTML(gameState.lastAction)}`
+                : gameState.gameStarted ? 'Market just opened' : 'Waiting for players'}</div>
+        </div>
+    </div>
+</div>
+
+<div class="flex gap-4 justify-center flex-wrap mb-4">
+    ${marketCards}${placeholderCards}
+    <span class="inline-flex flex-col items-center justify-center border-2 px-4 py-2 rounded-lg font-semibold" style="border-color: #8b4513; background: #8b4513; color: #fef3c7;">
+        <span class="text-xl leading-none">${gameState.gameStarted ? gameState.deckSize : '0'}</span>
+        <span class="text-sm tracking-wide">goods left</span>
+    </span>
+</div>
+
+<!-- Coin Stacks -->
+<div class="mt-6 mb-8">
+    <div class="grid grid-cols-3 gap-4">
+        ${marketCoinsDisplay}
+        ${bonusTokensDisplay}
+    </div>
+</div>
+
+<!-- Separator line -->
+<div style="height: 1px; background: #8b4513; opacity: 0.3; margin: 2rem 0;"></div>
+
+<!-- Player boards with vertical separator -->
+<div class="pb-20">
+    <div class="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-[1fr_2px_1fr] gap-8">
+        ${players[0] || ''}
+        <div class="hidden lg:block" style="background: #8b4513; opacity: 0.3;"></div>
+        ${players[1] || ''}
+    </div>
+</div>
+
+<!-- Fixed Bottom Panel with Controls -->
+<div class="fixed bottom-0 left-0 right-0 border-t-2 shadow-lg z-50" style="background: #f0dfc8; border-color: #8b4513;">
+    <div class="max-w-7xl mx-auto p-3 flex items-center justify-center gap-3">
+        ${gameState.gameStarted ? (gameState.gameMode === 'bot' ? `
+            <!-- Bot Controls -->
+            <div class="flex items-center gap-3">
+                ${gameState.botPaused ? `
+                    <button onclick="resumeBot()" class="action-btn px-4 py-2 rounded-lg font-bold text-xs cursor-pointer flex items-center gap-2">
+                        <i class="fa-solid fa-play"></i>PLAY
+                    </button>
+                ` : `
+                    <button onclick="pauseBot()" class="action-btn px-4 py-2 rounded-lg font-bold text-xs cursor-pointer flex items-center gap-2">
+                        <i class="fa-solid fa-pause"></i>PAUSE
+                    </button>
+                `}
+                <button onclick="stepBot()" class="action-btn px-4 py-2 rounded-lg font-bold text-xs cursor-pointer flex items-center gap-2">
+                    <i class="fa-solid fa-forward-step"></i>STEP
+                </button>
+                <div class="h-6 w-px" style="background: #8b4513; opacity: 0.3;"></div>
+                <!-- Speed Control -->
+                <div class="flex items-center gap-2">
+                    <label class="text-xs font-bold" style="color: #654321;">Speed:</label>
+                    <select id="speedSelect" onchange="setBotSpeed(this.value)" class="px-3 py-1.5 rounded-lg border-2 text-xs font-bold cursor-pointer" style="border-color: #8b4513; background: #e8d5b7; color: #654321;">
+                        <option value="0.25" ${(gameState.botSpeed || 1.0) === 0.25 ? 'selected' : ''}>0.25x</option>
+                        <option value="0.5" ${(gameState.botSpeed || 1.0) === 0.5 ? 'selected' : ''}>0.5x</option>
+                        <option value="1" ${(gameState.botSpeed || 1.0) === 1.0 ? 'selected' : ''}>1x</option>
+                        <option value="1.5" ${(gameState.botSpeed || 1.0) === 1.5 ? 'selected' : ''}>1.5x</option>
+                        <option value="2" ${(gameState.botSpeed || 1.0) === 2.0 ? 'selected' : ''}>2x</option>
+                        <option value="3" ${(gameState.botSpeed || 1.0) === 3.0 ? 'selected' : ''}>3x</option>
+                        <option value="4" ${(gameState.botSpeed || 1.0) === 4.0 ? 'selected' : ''}>4x</option>
+                    </select>
+                </div>
+                <div class="h-6 w-px" style="background: #8b4513; opacity: 0.3;"></div>
+                <!-- Timeout Control -->
+                <div class="flex items-center gap-2">
+                    <label class="text-xs font-bold" style="color: #654321;">Timeout:</label>
+                    <select id="timeoutSelect" onchange="setBotTimeout(this.value)" class="px-3 py-1.5 rounded-lg border-2 text-xs font-bold cursor-pointer" style="border-color: #8b4513; background: #e8d5b7; color: #654321;">
+                        <option value="0" ${(gameState.botTimeout || 30.0) === 0 ? 'selected' : ''}>Off</option>
+                        <option value="1" ${(gameState.botTimeout || 30.0) === 1 ? 'selected' : ''}>1s</option>
+                        <option value="2" ${(gameState.botTimeout || 30.0) === 2 ? 'selected' : ''}>2s</option>
+                        <option value="3" ${(gameState.botTimeout || 30.0) === 3 ? 'selected' : ''}>3s</option>
+                        <option value="5" ${(gameState.botTimeout || 30.0) === 5 ? 'selected' : ''}>5s</option>
+                        <option value="10" ${(gameState.botTimeout || 30.0) === 10 ? 'selected' : ''}>10s</option>
+                    </select>
+                </div>
+                <div class="h-6 w-px" style="background: #8b4513; opacity: 0.3;"></div>
+                <button onclick="sendCommand('reset')" class="action-btn px-4 py-2 rounded-lg font-bold text-xs cursor-pointer">
+                    <i class="fa-solid fa-rotate-right mr-1"></i>RESET
+                </button>
+            </div>
+        ` : `
+            <!-- Human Mode Reset -->
+            <button onclick="sendCommand('reset')" class="action-btn px-4 py-2 rounded-lg font-bold text-xs cursor-pointer">
+                <i class="fa-solid fa-rotate-right mr-1"></i>RESET
+            </button>
+        `) : ''}
+    </div>
+</div>
+    `;
+    
+    // Reset end game shown flag if game is not terminal (new game started)
+    if (!gameState.isTerminal) {
+        endGameShown = false;
+        showingEndGameTransition = false;  // Reset flag when starting new game
+    }
+    
+    // Show end-game score reveal if game is terminal
+    if (gameState.isTerminal && !endGameShown) {
+        endGameShown = true;
+        showEndGameTransition();
+    }
+}
+
+// End-game score reveal
+let endGameShown = false;
+let showingEndGameTransition = false;
+
+function showEndGameTransition() {
+    showingEndGameTransition = true;  // Set flag to prevent renderGame from overwriting
+    
+    // Show loading screen for 3 seconds
+    const app = document.getElementById('app');
+    app.innerHTML = `
+        <style>
+            @keyframes coinFlip {
+                0% { transform: rotateY(0deg); }
+                100% { transform: rotateY(360deg); }
+            }
+            .coin-flip {
+                animation: coinFlip 1.5s ease-in-out infinite;
+            }
+        </style>
+        <div class="flex items-center justify-center min-h-screen">
+            <div class="text-center">
+                <svg class="coin-flip w-24 h-24 mx-auto mb-6" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="50" cy="50" r="45" fill="none" stroke="#8b4513" stroke-width="4"/>
+                    <circle cx="50" cy="50" r="35" fill="none" stroke="#8b4513" stroke-width="2"/>
+                    <circle cx="50" cy="50" r="25" fill="none" stroke="#8b4513" stroke-width="2"/>
+                    <circle cx="50" cy="50" r="6" fill="#8b4513"/>
+                    <circle cx="35" cy="50" r="3" fill="#8b4513"/>
+                    <circle cx="65" cy="50" r="3" fill="#8b4513"/>
+                    <circle cx="50" cy="35" r="3" fill="#8b4513"/>
+                    <circle cx="50" cy="65" r="3" fill="#8b4513"/>
+                </svg>
+                <p class="text-xl font-semibold ancient-title" style="color: #654321;">Calculating final scores...</p>
+            </div>
+        </div>
+    `;
+    
+    // After 3 seconds, show the score breakdown
+    setTimeout(() => {
+        renderEndGameScores();
+    }, 3000);
+}
+
+function renderEndGameScores() {
+    const app = document.getElementById('app');
+    
+    const players = gameState.players || [];
+    
+    app.innerHTML = `
+<style>
+    @keyframes rowAppear {
+        0% { 
+            opacity: 0;
+            transform: translateX(-20px);
+        }
+        100% { 
+            opacity: 1;
+            transform: translateX(0);
+        }
+    }
+    
+    @keyframes winnerAppear {
+        0% { 
+            opacity: 0;
+            transform: scale(0.5) translateY(-20px);
+        }
+        60% { 
+            opacity: 1;
+            transform: scale(1.1) translateY(0);
+        }
+        80% { 
+            transform: scale(0.95) translateY(0);
+        }
+        100% { 
+            opacity: 1;
+            transform: scale(1) translateY(0);
+        }
+    }
+    
+    @keyframes winnerPulse {
+        0%, 100% { 
+            transform: scale(1);
+            filter: brightness(1);
+        }
+        50% { 
+            transform: scale(1.05);
+            filter: brightness(1.2);
+        }
+    }
+    
+    .score-line {
+        opacity: 0;
+        animation: rowAppear 0.4s ease-out forwards;
+    }
+    
+    .score-number {
+        display: inline-block;
+    }
+    
+    .winner-badge {
+        opacity: 0;
+        animation: winnerAppear 0.8s ease-out forwards;
+    }
+    
+    .winner-badge span {
+        animation: winnerPulse 2s ease-in-out infinite;
+        animation-delay: 0.8s;
+    }
+    
+    .score-icon {
+        display: inline-block;
+        width: 24px;
+        text-align: center;
+        margin-right: 12px;
+    }
+    
+    body {
+        background: #e8d5b7;
+    }
+</style>
+
+<div class="min-h-screen p-6" style="background: #e8d5b7;">
+    <div class="flex items-center justify-center mb-8">
+        <div class="text-center">
+            <h2 class="text-2xl sm:text-3xl font-bold ancient-title mb-2" style="color: #654321;">Market Closed</h2>
+        </div>
+    </div>
+
+    <!-- Player score breakdown -->
+    <div class="pb-20">
+        <div id="scoreReveal" class="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-[1fr_2px_1fr] gap-8">
+            <!-- Scores will be animated in here -->
+        </div>
+    </div>
+    
+    <!-- Fixed Bottom Reset Button -->
+    <div class="fixed bottom-0 left-0 right-0 border-t-2 shadow-lg z-50" style="background: #f0dfc8; border-color: #8b4513;">
+        <div class="max-w-7xl mx-auto p-3 flex items-center justify-center">
+            <button onclick="sendCommand('reset')" class="action-btn px-4 py-2 rounded-lg font-bold text-xs cursor-pointer">
+                <i class="fa-solid fa-rotate-right mr-1"></i>RESET
+            </button>
+        </div>
+    </div>
+</div>
+    `;
+    
+    // Start the score animation
+    setTimeout(() => animateScoreReveal(players), 500);
+}
+
+function animateScoreReveal(players) {
+    const container = document.getElementById('scoreReveal');
+    if (!container) return;
+    
+    // Determine which bonus types should be shown
+    const anyPlayerHasCamel = players.some(p => p.camelBonus > 0);
+    const anyPlayerHas3x = players.some(p => (p.bonusCounts?.THREE || 0) > 0);
+    const anyPlayerHas4x = players.some(p => (p.bonusCounts?.FOUR || 0) > 0);
+    const anyPlayerHas5x = players.some(p => (p.bonusCounts?.FIVE || 0) > 0);
+    
+    // Create player sections side by side
+    const playerSections = players.map((player, index) => {
+        // Outer wrapper to contain both section and badge
+        const wrapper = document.createElement('div');
+        wrapper.style.cssText = 'position: relative;';
+        
+        const section = document.createElement('div');
+        section.className = 'p-4';
+        section.style.cssText = 'display: flex; flex-direction: column;';
+        
+        const nameEl = document.createElement('h3');
+        nameEl.className = 'text-lg sm:text-xl font-bold mb-3 text-center ancient-title';
+        nameEl.style.color = '#654321';
+        nameEl.textContent = player.name;
+        section.appendChild(nameEl);
+        
+        // Wrapper for content
+        const contentWrapper = document.createElement('div');
+        contentWrapper.style.cssText = 'display: flex; flex-direction: column;';
+        contentWrapper.className = 'content-wrapper';
+        
+        const scoreLines = document.createElement('div');
+        scoreLines.className = 'space-y-2 text-sm sm:text-base';
+        scoreLines.dataset.playerIndex = index;
+        contentWrapper.appendChild(scoreLines);
+        
+        // Add total line at the bottom (initially showing 0)
+        const totalLine = document.createElement('div');
+        totalLine.className = 'total-line flex justify-between items-center pt-2 font-bold text-xl sm:text-2xl';
+        totalLine.style.cssText = 'border-top: 3px solid #8b4513; margin-top: 12px;';
+        totalLine.innerHTML = `
+            <span class="ancient-title" style="color: #654321;">Total</span>
+            <span class="total-number coin-icon" style="font-size: 1.5em;">0</span>
+        `;
+        contentWrapper.appendChild(totalLine);
+        
+        section.appendChild(contentWrapper);
+        wrapper.appendChild(section);
+        
+        // Add to grid - with divider between
+        if (index === 0) {
+            container.appendChild(wrapper);
+            // Add vertical divider
+            const divider = document.createElement('div');
+            divider.className = 'hidden lg:block';
+            divider.style.cssText = 'background: #8b4513; opacity: 0.3;';
+            container.appendChild(divider);
+        } else {
+            container.appendChild(wrapper);
+        }
+        
+        return { wrapper, section, scoreLines, player, runningTotal: 0, totalLine };
+    });
+    
+    let delay = 500;
+    const delayIncrement = 1000;
+    
+    // Helper function to animate a number counting up
+    const animateNumber = (element, targetValue, duration = 400) => {
+        const startValue = 0;
+        const startTime = performance.now();
+        
+        const updateNumber = (currentTime) => {
+            const elapsed = currentTime - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            
+            // Ease out function for smooth deceleration
+            const easeOut = 1 - Math.pow(1 - progress, 3);
+            const currentValue = Math.floor(startValue + (targetValue - startValue) * easeOut);
+            
+            element.textContent = (targetValue > 0 && currentValue > 0) ? `+${currentValue}` : currentValue;
+            
+            if (progress < 1) {
+                requestAnimationFrame(updateNumber);
+            } else {
+                element.textContent = targetValue > 0 ? `+${targetValue}` : targetValue;
+            }
+        };
+        
+        requestAnimationFrame(updateNumber);
+    };
+    
+    // Helper function to add a score line and update total
+    const addScoreLine = (label, getValue, isBonus = false) => {
+        setTimeout(() => {
+            playerSections.forEach(({ scoreLines, player, totalLine }, idx) => {
+                const value = getValue(player);
+                const previousTotal = playerSections[idx].runningTotal;
+                playerSections[idx].runningTotal += value;
+                
+                const line = document.createElement('div');
+                line.className = 'score-line flex justify-between items-center';
+                line.innerHTML = `
+                    <span class="${isBonus ? '' : 'font-semibold'}" style="color: #654321;">${label}</span>
+                    <span class="score-number font-bold" style="color: ${isBonus ? '#c87533' : '#8b4513'};">0</span>
+                `;
+                scoreLines.appendChild(line);
+                
+                // Animate the score number
+                const scoreNumber = line.querySelector('.score-number');
+                setTimeout(() => {
+                    animateNumber(scoreNumber, value, 400);
+                }, 100);
+                
+                // Update the total with animation
+                const totalNumber = totalLine.querySelector('.total-number');
+                setTimeout(() => {
+                    // Animate total from previous value to new value
+                    const totalStartValue = previousTotal;
+                    const totalTargetValue = playerSections[idx].runningTotal;
+                    const startTime = performance.now();
+                    
+                    const updateTotal = (currentTime) => {
+                        const elapsed = currentTime - startTime;
+                        const progress = Math.min(elapsed / 400, 1);
+                        const easeOut = 1 - Math.pow(1 - progress, 3);
+                        const currentValue = Math.floor(totalStartValue + (totalTargetValue - totalStartValue) * easeOut);
+                        
+                        totalNumber.textContent = currentValue;
+                        
+                        if (progress < 1) {
+                            requestAnimationFrame(updateTotal);
+                        } else {
+                            totalNumber.textContent = totalTargetValue;
+                        }
+                    };
+                    
+                    requestAnimationFrame(updateTotal);
+                }, 100);
+            });
+        }, delay);
+        delay += delayIncrement;
+    };
+    
+    // 1. Goods Score
+    addScoreLine('<i class="fa-solid fa-coins coin-icon score-icon"></i>Goods', p => p.rawScore || 0);
+    
+    // 2. Camel Bonus (always show)
+    addScoreLine('<i class="fa-solid fa-horse coin-icon score-icon"></i>Camel', p => p.camelBonus || 0, true);
+    
+    // 3. 3x Bonus (always show)
+    addScoreLine(
+        '<i class="fa-solid fa-3 coin-icon score-icon"></i>3x Bonus',
+        p => p.bonus3x || 0,
+        true
+    );
+    
+    // 4. 4x Bonus (always show)
+    addScoreLine(
+        '<i class="fa-solid fa-4 coin-icon score-icon"></i>4x Bonus',
+        p => p.bonus4x || 0,
+        true
+    );
+    
+    // 5. 5x Bonus (always show)
+    addScoreLine(
+        '<i class="fa-solid fa-5 coin-icon score-icon"></i>5x Bonus',
+        p => p.bonus5x || 0,
+        true
+    );
+    
+    // Add timeout penalty if applicable
+    if (gameState.botTimeoutPlayer) {
+        addScoreLine(
+            '<i class="fa-solid fa-stopwatch coin-icon score-icon"></i>Penalty',
+            p => p.name === gameState.botTimeoutPlayer ? -(p.score + 1) : 0,
+            false
+        );
+    }
+    
+    // Wait a bit, then show winner badge
+    delay += 500;
+    setTimeout(() => {
+        // Check if game ended due to timeout
+        if (gameState.botTimeoutPlayer) {
+            playerSections.forEach(({ wrapper, player }) => {
+                if (player.name !== gameState.botTimeoutPlayer) {
+                    const badge = document.createElement('div');
+                    badge.className = 'winner-badge text-center mt-4';
+                    badge.innerHTML = '<span class="inline-block px-4 py-2 rounded-full font-bold text-base sm:text-lg ancient-title" style="background: #d4af37; color: #654321; border: 2px solid #8b4513; box-shadow: 0 4px 8px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.4);"><i class="fa-solid fa-crown mr-2"></i>WINNER!</span>';
+                    wrapper.appendChild(badge);
+                }
+            });
+        } else {
+            // Normal game ending - determine winner by score
+            const maxScore = Math.max(...players.map(p => p.score));
+            playerSections.forEach(({ wrapper, player }) => {
+                if (player.score === maxScore) {
+                    const badge = document.createElement('div');
+                    badge.className = 'winner-badge text-center mt-4';
+                    badge.innerHTML = '<span class="inline-block px-4 py-2 rounded-full font-bold text-base sm:text-lg ancient-title" style="background: #d4af37; color: #654321; border: 2px solid #8b4513; box-shadow: 0 4px 8px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.4);"><i class="fa-solid fa-crown mr-2"></i>WINNER!</span>';
+                    wrapper.appendChild(badge);
+                }
+            });
+        }
+    }, delay);
+}
+
+function createScoreLine(label, value, isBonus = false) {
+    const line = document.createElement('div');
+    line.className = 'score-line flex justify-between items-center';
+    line.innerHTML = `
+        <span class="${isBonus ? '' : 'font-semibold'}" style="color: #654321;">${label}</span>
+        <span class="score-number font-bold" style="color: ${isBonus ? '#c87533' : '#8b4513'};">${isBonus && value > 0 ? '+' : ''}${value}</span>
+    `;
+    return line;
+}
+
+
+connectWebSocket();
+</script>
+</body>
+</html>
