@@ -1,8 +1,8 @@
 # trained a bit
 import random
-from bazaar_ai.trader import Trader, SellAction, TakeAction, TradeAction
-from bazaar_ai.goods import GoodType
-from bazaar_ai.market import MarketObservation
+from backend.trader import Trader, SellAction, TakeAction, TradeAction
+from backend.goods import GoodType
+from backend.market import MarketObservation
 
 class ExpertHeuristicAgent(Trader):
     """

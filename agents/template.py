@@ -1,5 +1,5 @@
-from bazaar_ai.trader import Trader, TraderAction
-from bazaar_ai.market import MarketObservation
+from backend.trader import Trader, TraderAction
+from backend.market import MarketObservation
 from typing import Optional, Callable
 import random
 

@@ -1,5 +1,5 @@
-from bazaar_ai.trader import Trader, TraderAction, SellAction, TakeAction, TradeAction
-from bazaar_ai.goods import GoodType
+from backend.trader import Trader, TraderAction, SellAction, TakeAction, TradeAction
+from backend.goods import GoodType
 
 class SmartAgent(Trader):
     """

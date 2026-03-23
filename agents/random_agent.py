@@ -1,4 +1,4 @@
-from bazaar_ai.trader import Trader
+from backend.trader import Trader
 
 class RandomAgent(Trader):
     """

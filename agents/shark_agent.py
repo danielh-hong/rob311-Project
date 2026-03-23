@@ -2,8 +2,8 @@
 # 706 wins to 271 wins against smart agent
 
 import random
-from bazaar_ai.trader import Trader, SellAction, TakeAction, TradeAction
-from bazaar_ai.goods import GoodType
+from backend.trader import Trader, SellAction, TakeAction, TradeAction
+from backend.goods import GoodType
 
 class SharkAgent(Trader):
     """

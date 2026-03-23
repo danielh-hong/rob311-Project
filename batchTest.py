@@ -3,6 +3,8 @@ import multiprocessing
 import random
 from collections import defaultdict
 from typing import Dict
+import sys
+sys.path.insert(0, r'..\bazaar-ai\src\bazaar-ai')
 
 # ============================================================
 # CONFIGURATION - CHANGE THESE TO TEST DIFFERENT AGENTS
@@ -14,9 +16,9 @@ from typing import Dict
 # from agents.apex_agent import ApexAgent as Agent2
 # from agents.shark_agent2 import SharkAgent2 as Agent1
 # from agents.shark_agent5 import SharkAgent5 as Agent1
-from agents.shark_agent7 import SharkAgent7 as Agent2
-from agents.shark_agent6 import SharkAgent6 as Agent1
-
+# from agents.shark_agent7 import SharkAgent7 as Agent2
+from agents.star_agent import StarAgent as Agent1
+from agents.random_agent import RandomAgent as Agent2
 NUM_GAMES = 1000    # How many games to play total
 SEED_START = 233423       # Starting random seed (change for different matchups)
 
@@ -32,7 +34,7 @@ def run_single_game(seed: int) -> Dict[str, int]:
     agents = [agent_1, agent_2]
     
     # Setup game
-    from bazaar_ai.bazaar import BasicBazaar
+    from backend.bazaar import BasicBazaar
     game = BasicBazaar(seed=seed, players=agents)
     state = game.state
     

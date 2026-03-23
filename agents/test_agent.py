@@ -1,6 +1,6 @@
-from bazaar_ai.trader import Trader, SellAction, TakeAction, TradeAction
-from bazaar_ai.goods import GoodType
-from bazaar_ai.coins import BonusType
+from backend.trader import Trader, SellAction, TakeAction, TradeAction
+from backend.goods import GoodType
+from backend.coins import BonusType
 
 class SearchAgent(Trader):
     def __init__(self, seed, name):

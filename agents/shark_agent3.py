@@ -1,7 +1,7 @@
 import random
 import uuid
-from bazaar_ai.trader import Trader, SellAction, TakeAction, TradeAction
-from bazaar_ai.goods import GoodType
+from backend.trader import Trader, SellAction, TakeAction, TradeAction
+from backend.goods import GoodType
 
 class SharkAgent3(Trader):
     """
