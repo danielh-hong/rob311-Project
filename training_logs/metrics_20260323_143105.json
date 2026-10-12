@@ -1,0 +1,46 @@
+{
+  "run_name": "elite_duelingdqn_20260323_143105",
+  "model_tag": "DuelingDQN-ValueReg-v3",
+  "device": "cpu",
+  "feature_size": 200,
+  "curriculum_total_games": 1,
+  "optimizer": "Adam",
+  "learning_rate": 0.0003,
+  "batch_size": 128,
+  "timestamp": "20260323_143105",
+  "stages": [
+    {
+      "name": "Smoke",
+      "games": 1,
+      "win_rate": 100.0,
+      "rl_avg_score": 71.0,
+      "opp_avg_score": 35.0,
+      "wins": 1,
+      "losses": 0,
+      "mean_loss": 0.0,
+      "loss_points": [],
+      "evaluation": {
+        "Random": {
+          "win_rate": 0,
+          "rl_avg_score": 0,
+          "opp_avg_score": 0
+        },
+        "Smart": {
+          "win_rate": 0,
+          "rl_avg_score": 0,
+          "opp_avg_score": 0
+        },
+        "Shark6": {
+          "win_rate": 0,
+          "rl_avg_score": 0,
+          "opp_avg_score": 0
+        },
+        "Shark7": {
+          "win_rate": 0,
+          "rl_avg_score": 0,
+          "opp_avg_score": 0
+        }
+      }
+    }
+  ]
+}

@@ -10,7 +10,7 @@ git clone https://github.com/chandra-gummaluru/bazaar-ai.git .\bazaar-ai
 
 If folder already exists:
 ```powershell
-cd C:\Users\danie\Documents\GitHub\rob311-Project\bazaar-ai
+cd bazaar-ai
 git pull
 ```
 
@@ -26,7 +26,7 @@ You should see `(venv)` in your terminal prompt.
 
 ### Launch the Web UI (to test visually)
 ```powershell
-cd C:\Users\danie\Documents\GitHub\rob311-Project\bazaar-ai
+cd bazaar-ai
 .\launch-bazaar-ai.bat
 ```
 

@@ -1,0 +1,2 @@
+run_name,model_tag,stage,games,train_win_rate,train_rl_avg_score,train_opp_avg_score,mean_loss,eval_random_wr,eval_smart_wr,eval_shark6_wr,eval_shark7_wr
+elite_duelingdqn_20260323_143105,DuelingDQN-ValueReg-v3,Smoke,1,100.0,71.0,35.0,0.0,0,0,0,0

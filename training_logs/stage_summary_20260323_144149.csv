@@ -1,0 +1,6 @@
+run_name,model_tag,stage,games,train_win_rate,train_rl_avg_score,train_opp_avg_score,mean_loss,mean_target,learning_rate,scheduler_metric,eval_random_wr,eval_smart_wr,eval_shark6_wr,eval_shark7_wr
+elite_duelingdqn_20260323_144149,DuelingDQN-ValueReg-v4,Random,1080,50.7407,59.0741,44.663,0.089668,0.057626,0.0003,50.7407,52.0,0.0,0.0,0.0
+elite_duelingdqn_20260323_144149,DuelingDQN-ValueReg-v4,Smart,1440,0.0,32.0639,92.4924,0.046683,-0.999344,0.0003,0.0,40.0,0.0,0.0,0.0
+elite_duelingdqn_20260323_144149,DuelingDQN-ValueReg-v4,Shark6,1620,0.0,31.4043,96.1932,0.017059,-0.999897,0.0003,0.0,52.0,0.0,0.0,0.0
+elite_duelingdqn_20260323_144149,DuelingDQN-ValueReg-v4,Shark7,2160,0.0,29.075,97.7245,0.01016,-1.0,0.00018,0.0,48.0,0.0,0.0,0.0
+elite_duelingdqn_20260323_144149,DuelingDQN-ValueReg-v4,Mixed_Final,2700,11.8889,36.263,83.6381,0.016653,-0.759125,0.00018,11.8889,34.0,0.0,0.0,0.0
